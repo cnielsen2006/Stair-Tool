@@ -71,7 +71,7 @@ class App:
         self.root.bind("<Control-r>", lambda _: self.input_panel._reset_defaults())
 
     def _on_inputs_changed(self):
-        self._selected_n = None   # reset selection when rise/run dimensions change
+        # Do not reset _selected_n — preserve the user's explicit step count
         self._recalculate()
 
     def _on_constraints_changed(self):

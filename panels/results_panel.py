@@ -457,19 +457,54 @@ class ResultsPanel(ttk.Frame):
                           text=f"{tread:.2f}\"", fill=LABEL_COLOR,
                           font=("Segoe UI", 7))
 
-        # Overall rise label (right side)
-        ox2, oy2_bot = px(total_run, 0)
-        ox2, oy2_top = px(total_run, total_rise)
-        c.create_text(ox2 + 8, (oy2_bot + oy2_top) / 2,
-                      text=f"Total Rise\n{total_rise:.1f}\"",
-                      fill="#555555", font=("Segoe UI", 7), anchor="w")
+        # ── Overall dimensions ─────────────────────────────────────────
+        dim_color = "#444455"
+        tick = 6
 
-        # Overall run label (bottom)
-        bx_left, by_bot = px(0, 0)
-        bx_right, _     = px(total_run, 0)
-        c.create_text((bx_left + bx_right) / 2, by_bot + 14,
-                      text=f"Total Run: {total_run:.1f}\"",
-                      fill="#555555", font=("Segoe UI", 7))
+        # Height to top of topmost step = (n-1)*riser  (NOT total_rise)
+        # total_rise is the upper landing floor level; the topmost step
+        # surface is one riser below that.
+        top_step_height = (n - 1) * riser   # physical inches
+
+        # Right-side dimension: ground → top of topmost step
+        dim_offset_x = 38  # pixels right of the stair right edge
+        rs_top_cx, rs_top_cy = px(total_run, top_step_height)
+        rs_bot_cx, rs_bot_cy = px(total_run, 0)
+        rdim_x = rs_top_cx + dim_offset_x
+        # Extension lines
+        c.create_line(rs_top_cx, rs_top_cy, rdim_x + tick, rs_top_cy, fill=dim_color, width=1)
+        c.create_line(rs_bot_cx, rs_bot_cy, rdim_x + tick, rs_bot_cy, fill=dim_color, width=1)
+        # Arrow
+        c.create_line(rdim_x, rs_bot_cy, rdim_x, rs_top_cy,
+                      arrow=tk.BOTH, fill=dim_color, width=1)
+        # Labels
+        c.create_text(rdim_x + tick + 3, (rs_top_cy + rs_bot_cy) / 2,
+                      text=f"Ht to top step\n{top_step_height:.2f}\"",
+                      fill=dim_color, font=("Segoe UI", 7), anchor="w")
+
+        # Dashed extension from top-step level up to landing (total_rise),
+        # showing the final riser dimension
+        land_cx, land_cy = px(total_run, total_rise)
+        c.create_line(rdim_x + tick, rs_top_cy, rdim_x + tick, land_cy,
+                      fill=dim_color, width=1, dash=(3, 3))
+        c.create_line(land_cx, land_cy, rdim_x + tick * 2, land_cy,
+                      fill=dim_color, width=1)
+        c.create_text(rdim_x + tick * 2 + 3, (rs_top_cy + land_cy) / 2,
+                      text=f"+{riser:.2f}\"\n(last riser\nto landing)",
+                      fill=dim_color, font=("Segoe UI", 6), anchor="w")
+
+        # Bottom dimension: total run
+        dim_offset_y = 30
+        bx_left,  by_bot = px(0,         0)
+        bx_right, _      = px(total_run, 0)
+        bdim_y = by_bot + dim_offset_y
+        c.create_line(bx_left,  by_bot, bx_left,  bdim_y + tick, fill=dim_color, width=1)
+        c.create_line(bx_right, by_bot, bx_right, bdim_y + tick, fill=dim_color, width=1)
+        c.create_line(bx_left, bdim_y, bx_right, bdim_y,
+                      arrow=tk.BOTH, fill=dim_color, width=1)
+        c.create_text((bx_left + bx_right) / 2, bdim_y + tick + 2,
+                      text=f"Total Run: {total_run:.2f}\"",
+                      fill=dim_color, font=("Segoe UI", 7), anchor="n")
 
         # ── 2×12 Stringer ─────────────────────────────────────────────
         # Geometry conventions:
@@ -613,6 +648,77 @@ class ResultsPanel(ttk.Frame):
                          fill="#D4B896", outline="#7A5533", width=2,
                          stipple="gray50")
 
+        # ── Stringer board: dimension all 4 sides ──────────────────────
+        # The cut stringer is a 4-sided shape (parallelogram with plumb ends):
+        #   P0 = (0, 0)                         top-face, bottom-end (stair origin)
+        #   P1 = (total_run, total_rise)         top-face, top-end
+        #   P2 = (total_run, total_rise-BW/cosθ) bottom-face, top-end (plumb cut)
+        #   P3 = (BW/sinθ, 0)                   bottom-face, bottom-end (at ground)
+        #
+        # Side lengths:
+        #   P0→P1 (top face)    = stringer_length  (hypotenuse)
+        #   P1→P2 (top plumb)   = BW_div_cos        (vertical height of top cut)
+        #   P2→P3 (bottom face) = stringer_length  (parallel to top)
+        #   P3→P0 (bottom foot) = BW_div_sin        (horizontal run at base)
+        #
+        # Canvas coords of all four corners
+        P0cx, P0cy = px(0.0,        0.0)
+        P1cx, P1cy = px(total_run,  total_rise)
+        P2cx, P2cy = px(total_run,  total_rise - BW_div_cos)
+        P3cx, P3cy = px(BW_div_sin, 0.0)
+
+        str_col = "#7A5533"
+        sdim_gap = 14   # pixels gap between face and dimension line
+
+        # --- Side 1: top face P0→P1 (above the top face, offset +perp) ---
+        tf_off_x = perp(sdim_gap)[0]
+        tf_off_y = perp(sdim_gap)[1]
+        tfd_x0, tfd_y0 = P0cx + tf_off_x, P0cy + tf_off_y
+        tfd_x1, tfd_y1 = P1cx + tf_off_x, P1cy + tf_off_y
+        c.create_line(P0cx, P0cy, tfd_x0, tfd_y0, fill=str_col, width=1)
+        c.create_line(P1cx, P1cy, tfd_x1, tfd_y1, fill=str_col, width=1)
+        c.create_line(tfd_x0, tfd_y0, tfd_x1, tfd_y1, arrow=tk.BOTH, fill=str_col, width=1)
+        sl_ft = cfg.stringer_length / 12.0
+        tfd_mx, tfd_my = (tfd_x0 + tfd_x1) / 2, (tfd_y0 + tfd_y1) / 2
+        c.create_text(tfd_mx + perp(6)[0], tfd_my + perp(6)[1],
+                      text=f"Top face: {cfg.stringer_length:.2f}\" ({sl_ft:.2f} ft)",
+                      fill=str_col, font=("Segoe UI", 7), anchor="s")
+
+        # --- Side 2: top plumb cut P1→P2 (to the right of the cut) ---
+        tp_off = 14  # pixels to the right in canvas x
+        tpc_x0, tpc_y0 = P1cx + tp_off, P1cy
+        tpc_x1, tpc_y1 = P2cx + tp_off, P2cy
+        c.create_line(P1cx, P1cy, tpc_x0, tpc_y0, fill=str_col, width=1)
+        c.create_line(P2cx, P2cy, tpc_x1, tpc_y1, fill=str_col, width=1)
+        c.create_line(tpc_x0, tpc_y0, tpc_x1, tpc_y1, arrow=tk.BOTH, fill=str_col, width=1)
+        c.create_text(tpc_x0 + 3, (tpc_y0 + tpc_y1) / 2,
+                      text=f"{BW_div_cos:.2f}\"", fill=str_col,
+                      font=("Segoe UI", 7), anchor="w")
+
+        # --- Side 3: bottom face P2→P3 (below, offset -perp) ---
+        bf_off_x = perp(-sdim_gap)[0]
+        bf_off_y = perp(-sdim_gap)[1]
+        bfd_x0, bfd_y0 = P3cx + bf_off_x, P3cy + bf_off_y
+        bfd_x1, bfd_y1 = P2cx + bf_off_x, P2cy + bf_off_y
+        c.create_line(P3cx, P3cy, bfd_x0, bfd_y0, fill=str_col, width=1)
+        c.create_line(P2cx, P2cy, bfd_x1, bfd_y1, fill=str_col, width=1)
+        c.create_line(bfd_x0, bfd_y0, bfd_x1, bfd_y1, arrow=tk.BOTH, fill=str_col, width=1)
+        bfd_mx, bfd_my = (bfd_x0 + bfd_x1) / 2, (bfd_y0 + bfd_y1) / 2
+        c.create_text(bfd_mx + perp(-6)[0], bfd_my + perp(-6)[1],
+                      text=f"Bottom face: {cfg.stringer_length:.2f}\" ({sl_ft:.2f} ft)",
+                      fill=str_col, font=("Segoe UI", 7), anchor="n")
+
+        # --- Side 4: bottom foot P3→P0 (horizontal at ground, below) ---
+        foot_off = 14   # pixels below ground line
+        ffd_x0, ffd_y0 = P3cx, P3cy + foot_off
+        ffd_x1, ffd_y1 = P0cx, P0cy + foot_off
+        c.create_line(P3cx, P3cy, ffd_x0, ffd_y0, fill=str_col, width=1)
+        c.create_line(P0cx, P0cy, ffd_x1, ffd_y1, fill=str_col, width=1)
+        c.create_line(ffd_x0, ffd_y0, ffd_x1, ffd_y1, arrow=tk.BOTH, fill=str_col, width=1)
+        c.create_text((ffd_x0 + ffd_x1) / 2, ffd_y0 + 3,
+                      text=f"Foot: {BW_div_sin:.2f}\"",
+                      fill=str_col, font=("Segoe UI", 7), anchor="n")
+
         # Centre-line (mid-board reference) — from P0+perp(-HALF_W) to P1+perp(-HALF_W)
         # In physical space the centre-line midpoint at each end:
         #   bottom: physical (0,0) offset HALF_W perpendicular below top face
@@ -684,13 +790,7 @@ class ResultsPanel(ttk.Frame):
                       text="⊥", fill="#7A5533",
                       font=("Segoe UI", 7), anchor="n")
 
-        # Stringer length label offset above the centre-line midpoint
-        mid_cl_cx = (ml_x0_c + ml_x1_c) / 2 + perp(HALF_W + 5)[0]
-        mid_cl_cy = (ml_y0_c + ml_y1_c) / 2 + perp(HALF_W + 5)[1]
-        sl_ft = cfg.stringer_length / 12.0
-        c.create_text(mid_cl_cx, mid_cl_cy,
-                      text=f"2×12 Stringer: {cfg.stringer_length:.1f}\" ({sl_ft:.2f} ft)",
-                      fill="#7A5533", font=("Segoe UI", 7), anchor="e")
+        # (stringer length label moved to the dimension line below the board)
 
         # Intermediate support markers along the stringer centre-line
         if cfg.support_count > 0:
