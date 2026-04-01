@@ -882,10 +882,24 @@ class ResultsPanel(ttk.Frame):
         tread = cfg.tread_depth
         rot   = cfg.rule_of_thumb
 
-        # Inset geometry — lower-right corner
+        # Inset geometry — inside the lower-right corner of the stair chart,
+        # where the rise and run dimension lines meet.
         radius = 75
-        cx = cw - CANVAS_MARGIN - radius - 4
-        cy = ch - CANVAS_MARGIN - radius - 4
+        if self._model:
+            total_run  = self._model.total_run
+            total_rise = self._model.total_rise
+            margin = CANVAS_MARGIN
+            usable_w = cw - 2 * margin
+            usable_h = ch - 2 * margin
+            scale = min(usable_w / total_run, usable_h / total_rise) if total_run and total_rise else 1
+            # Anchor to the rise dim line (right) and ground line (bottom)
+            right_x = margin + total_run * scale + 32  # just inside rise dim line
+            ground_y = ch - margin                     # the dashed ground line
+            cx = right_x - radius
+            cy = ground_y - radius
+        else:
+            cx = cw - CANVAS_MARGIN - radius - 4
+            cy = ch - CANVAS_MARGIN - radius - 4
 
         # Background circle
         c.create_oval(cx - radius, cy - radius, cx + radius, cy + radius,
