@@ -15,13 +15,16 @@ from models import StairModel, StepConfig
 class ResultsPanel(ttk.Frame):
     """Right panel: stair diagram canvas + computed results summary."""
 
-    def __init__(self, parent, on_n_change=None, **kwargs):
+    def __init__(self, parent, on_risers_change=None, **kwargs):
         super().__init__(parent, **kwargs)
-        self._on_n_change = on_n_change
+        self._on_risers_change = on_risers_change
         self._model: Optional[StairModel] = None
-        self._selected_n: Optional[int]   = None
+        self._selected_risers: Optional[int]   = None
         self._all_configs = []
         self._current_rot: Optional[float] = None  # 2R+T for gauge
+        self._stringer_count: int = 3
+        self._stair_width: float = 36.0
+        self._tread_board_width: float = 5.5
 
         self._build_ui()
 
@@ -49,15 +52,15 @@ class ResultsPanel(ttk.Frame):
         # N selector row
         sel_row = ttk.Frame(summary_frame)
         sel_row.pack(fill="x", pady=(0, 6))
-        ttk.Label(sel_row, text="Steps (N):").pack(side="left")
-        self._n_var = tk.StringVar()
-        self._n_spinbox = ttk.Spinbox(
-            sel_row, textvariable=self._n_var, width=6,
-            command=self._on_n_spinbox,
+        ttk.Label(sel_row, text="Steps (including landing):").pack(side="left")
+        self._steps_var = tk.StringVar()
+        self._steps_spinbox = ttk.Spinbox(
+            sel_row, textvariable=self._steps_var, width=6,
+            command=self._on_steps_spinbox,
         )
-        self._n_spinbox.pack(side="left", padx=(4, 0))
-        self._n_spinbox.bind("<Return>",   self._on_n_spinbox)
-        self._n_spinbox.bind("<FocusOut>", self._on_n_spinbox)
+        self._steps_spinbox.pack(side="left", padx=(4, 0))
+        self._steps_spinbox.bind("<Return>",   self._on_steps_spinbox)
+        self._steps_spinbox.bind("<FocusOut>", self._on_steps_spinbox)
         self._valid_range_label = ttk.Label(sel_row, text="", foreground="#555555")
         self._valid_range_label.pack(side="left", padx=(8, 0))
 
@@ -129,61 +132,68 @@ class ResultsPanel(ttk.Frame):
     # Public API
     # ------------------------------------------------------------------
 
-    def update(self, model: StairModel, selected_n: Optional[int]):
+    def update(self, model: StairModel, selected_risers: Optional[int],
+               stringer_count: int = 3, stair_width: float = 36.0,
+               tread_board_width: float = 5.5):
         self._model      = model
+        self._stringer_count = stringer_count
+        self._stair_width = stair_width
+        self._tread_board_width = tread_board_width
         self._all_configs = model.compute_configs()
-        valid_ns = [c.n_steps for c in self._all_configs if c.is_valid]
+        valid_ns = [c.n_risers for c in self._all_configs if c.is_valid]
 
         # Configure spinbox to span the full search range (valid + nearby invalid)
-        # Always include selected_n in the range so a user-entered value isn't clamped
-        all_ns = [c.n_steps for c in self._all_configs]
+        # Always include selected_risers in the range so a user-entered value isn't clamped
+        # Spinbox shows steps (treads = risers - 1); internally we track risers.
+        all_ns = [c.n_risers for c in self._all_configs]
         n_lo = min(all_ns) if all_ns else 2
         n_hi = max(all_ns) if all_ns else 50
-        if selected_n is not None:
-            n_lo = min(n_lo, selected_n)
-            n_hi = max(n_hi, selected_n)
-        self._n_spinbox.config(from_=n_lo, to=n_hi)
+        if selected_risers is not None:
+            n_lo = min(n_lo, selected_risers)
+            n_hi = max(n_hi, selected_risers)
+        self._steps_spinbox.config(from_=n_lo - 1, to=n_hi - 1)
         if valid_ns:
             lo, hi = min(valid_ns), max(valid_ns)
-            rng_text = f"valid: {lo}" if lo == hi else f"valid: {lo}–{hi}"
+            rng_text = f"valid: {lo - 1}" if lo == hi else f"valid: {lo - 1}–{hi - 1}"
             self._valid_range_label.config(text=rng_text, foreground="#555555")
         else:
             self._valid_range_label.config(text="no valid solution", foreground=INVALID_COLOR)
 
-        # Set selected N — always honor an explicitly provided value
-        if selected_n is not None:
-            self._selected_n = selected_n
+        # Set selected N (risers) — always honor an explicitly provided value
+        if selected_risers is not None:
+            self._selected_risers = selected_risers
         elif valid_ns:
             opt = model.optimal_config()
-            self._selected_n = opt.n_steps if opt else valid_ns[0]
+            self._selected_risers = opt.n_risers if opt else valid_ns[0]
         else:
             # fallback: show closest possible
-            self._selected_n = self._all_configs[len(self._all_configs)//2].n_steps \
+            self._selected_risers = self._all_configs[len(self._all_configs)//2].n_risers \
                 if self._all_configs else 2
 
-        self._n_var.set(str(self._selected_n))
+        self._steps_var.set(str(self._selected_risers - 1))
         self._refresh()
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _on_n_spinbox(self, _=None):
+    def _on_steps_spinbox(self, _=None):
         try:
-            n = int(self._n_var.get())
+            steps = int(self._steps_var.get())
         except ValueError:
             return
-        self._selected_n = n
+        n = steps + 1  # convert steps (treads) to risers
+        self._selected_risers = n
         self._refresh()
-        if self._on_n_change:
-            self._on_n_change(n)
+        if self._on_risers_change:
+            self._on_risers_change(n)
 
     def _on_canvas_resize(self, _=None):
-        if self._model and self._selected_n:
+        if self._model and self._selected_risers:
             self._redraw_canvas()
 
     def _refresh(self):
-        cfg = self._find_config(self._selected_n)
+        cfg = self._find_config(self._selected_risers)
         self._update_summary(cfg)
         self._redraw_canvas()
 
@@ -191,7 +201,7 @@ class ResultsPanel(ttk.Frame):
         if n is None:
             return None
         for c in self._all_configs:
-            if c.n_steps == n:
+            if c.n_risers == n:
                 return c
         # N is outside the precomputed range — compute on-the-fly
         if self._model and n >= 2:
@@ -260,16 +270,16 @@ class ResultsPanel(ttk.Frame):
 
         if cfg.is_valid:
             opt = self._model.optimal_config() if self._model else None
-            is_opt = opt and opt.n_steps == cfg.n_steps
+            is_opt = opt and opt.n_risers == cfg.n_risers
             if is_opt:
                 self._stat_vars["status"].set("Optimal")
                 self._status_label.config(
-                    text=f"N = {cfg.n_steps} steps — Optimal solution",
+                    text=f"{cfg.n_risers - 1} steps ({cfg.n_risers} risers) — Optimal",
                     foreground=OPTIMAL_COLOR)
             else:
                 self._stat_vars["status"].set("Valid")
                 self._status_label.config(
-                    text=f"N = {cfg.n_steps} steps — Valid (not optimal)",
+                    text=f"{cfg.n_risers - 1} steps ({cfg.n_risers} risers) — Valid (not optimal)",
                     foreground="#005599")
         else:
             self._stat_vars["status"].set("Out of range")
@@ -372,15 +382,15 @@ class ResultsPanel(ttk.Frame):
         ch = c.winfo_height() or CANVAS_HEIGHT
         c.config(background=DIAGRAM_BG)
 
-        if not self._model or self._selected_n is None:
+        if not self._model or self._selected_risers is None:
             c.create_text(cw / 2, ch / 2, text="No data", fill="#AAAAAA", font=("Segoe UI", 14))
             return
 
-        cfg = self._find_config(self._selected_n)
+        cfg = self._find_config(self._selected_risers)
         if cfg is None:
             return
 
-        n      = cfg.n_steps
+        n      = cfg.n_risers
         riser  = cfg.riser_height
         tread  = cfg.tread_depth
         total_rise = self._model.total_rise
@@ -461,37 +471,21 @@ class ResultsPanel(ttk.Frame):
         dim_color = "#444455"
         tick = 6
 
-        # Height to top of topmost step = (n-1)*riser  (NOT total_rise)
-        # total_rise is the upper landing floor level; the topmost step
-        # surface is one riser below that.
-        top_step_height = (n - 1) * riser   # physical inches
-
-        # Right-side dimension: ground → top of topmost step
+        # Right-side dimension: ground → landing (total rise)
         dim_offset_x = 38  # pixels right of the stair right edge
-        rs_top_cx, rs_top_cy = px(total_run, top_step_height)
+        land_cx, land_cy = px(total_run, total_rise)
         rs_bot_cx, rs_bot_cy = px(total_run, 0)
-        rdim_x = rs_top_cx + dim_offset_x
+        rdim_x = land_cx + dim_offset_x
         # Extension lines
-        c.create_line(rs_top_cx, rs_top_cy, rdim_x + tick, rs_top_cy, fill=dim_color, width=1)
+        c.create_line(land_cx, land_cy, rdim_x + tick, land_cy, fill=dim_color, width=1)
         c.create_line(rs_bot_cx, rs_bot_cy, rdim_x + tick, rs_bot_cy, fill=dim_color, width=1)
         # Arrow
-        c.create_line(rdim_x, rs_bot_cy, rdim_x, rs_top_cy,
+        c.create_line(rdim_x, rs_bot_cy, rdim_x, land_cy,
                       arrow=tk.BOTH, fill=dim_color, width=1)
-        # Labels
-        c.create_text(rdim_x + tick + 3, (rs_top_cy + rs_bot_cy) / 2,
-                      text=f"Ht to top step\n{top_step_height:.2f}\"",
+        # Label
+        c.create_text(rdim_x + tick + 3, (land_cy + rs_bot_cy) / 2,
+                      text=f"Total Rise\n{total_rise:.2f}\"",
                       fill=dim_color, font=("Segoe UI", 7), anchor="w")
-
-        # Dashed extension from top-step level up to landing (total_rise),
-        # showing the final riser dimension
-        land_cx, land_cy = px(total_run, total_rise)
-        c.create_line(rdim_x + tick, rs_top_cy, rdim_x + tick, land_cy,
-                      fill=dim_color, width=1, dash=(3, 3))
-        c.create_line(land_cx, land_cy, rdim_x + tick * 2, land_cy,
-                      fill=dim_color, width=1)
-        c.create_text(rdim_x + tick * 2 + 3, (rs_top_cy + land_cy) / 2,
-                      text=f"+{riser:.2f}\"\n(last riser\nto landing)",
-                      fill=dim_color, font=("Segoe UI", 6), anchor="w")
 
         # Bottom dimension: total run
         dim_offset_y = 30
@@ -668,19 +662,17 @@ class ResultsPanel(ttk.Frame):
         P3cx, P3cy = px(BW_div_sin, 0.0)
 
         str_col = "#7A5533"
-        sdim_gap = 14   # pixels gap between face and dimension line
+        sdim_gap = 24   # pixels gap between face and dimension line
 
-        # --- Side 1: top face P0→P1 (above the top face, offset +perp) ---
-        tf_off_x = perp(sdim_gap)[0]
-        tf_off_y = perp(sdim_gap)[1]
-        tfd_x0, tfd_y0 = P0cx + tf_off_x, P0cy + tf_off_y
-        tfd_x1, tfd_y1 = P1cx + tf_off_x, P1cy + tf_off_y
+        # --- Side 1: top face P0→P1 (offset straight up in canvas) ---
+        sl_ft = cfg.stringer_length / 12.0
+        tfd_x0, tfd_y0 = P0cx, P0cy - sdim_gap
+        tfd_x1, tfd_y1 = P1cx, P1cy - sdim_gap
         c.create_line(P0cx, P0cy, tfd_x0, tfd_y0, fill=str_col, width=1)
         c.create_line(P1cx, P1cy, tfd_x1, tfd_y1, fill=str_col, width=1)
         c.create_line(tfd_x0, tfd_y0, tfd_x1, tfd_y1, arrow=tk.BOTH, fill=str_col, width=1)
-        sl_ft = cfg.stringer_length / 12.0
         tfd_mx, tfd_my = (tfd_x0 + tfd_x1) / 2, (tfd_y0 + tfd_y1) / 2
-        c.create_text(tfd_mx + perp(6)[0], tfd_my + perp(6)[1],
+        c.create_text(tfd_mx, tfd_my - 6,
                       text=f"Top face: {cfg.stringer_length:.2f}\" ({sl_ft:.2f} ft)",
                       fill=str_col, font=("Segoe UI", 7), anchor="s")
 
@@ -695,16 +687,14 @@ class ResultsPanel(ttk.Frame):
                       text=f"{BW_div_cos:.2f}\"", fill=str_col,
                       font=("Segoe UI", 7), anchor="w")
 
-        # --- Side 3: bottom face P2→P3 (below, offset -perp) ---
-        bf_off_x = perp(-sdim_gap)[0]
-        bf_off_y = perp(-sdim_gap)[1]
-        bfd_x0, bfd_y0 = P3cx + bf_off_x, P3cy + bf_off_y
-        bfd_x1, bfd_y1 = P2cx + bf_off_x, P2cy + bf_off_y
+        # --- Side 3: bottom face P2→P3 (offset straight down in canvas) ---
+        bfd_x0, bfd_y0 = P3cx, P3cy + sdim_gap
+        bfd_x1, bfd_y1 = P2cx, P2cy + sdim_gap
         c.create_line(P3cx, P3cy, bfd_x0, bfd_y0, fill=str_col, width=1)
         c.create_line(P2cx, P2cy, bfd_x1, bfd_y1, fill=str_col, width=1)
         c.create_line(bfd_x0, bfd_y0, bfd_x1, bfd_y1, arrow=tk.BOTH, fill=str_col, width=1)
         bfd_mx, bfd_my = (bfd_x0 + bfd_x1) / 2, (bfd_y0 + bfd_y1) / 2
-        c.create_text(bfd_mx + perp(-6)[0], bfd_my + perp(-6)[1],
+        c.create_text(bfd_mx, bfd_my + 6,
                       text=f"Bottom face: {cfg.stringer_length:.2f}\" ({sl_ft:.2f} ft)",
                       fill=str_col, font=("Segoe UI", 7), anchor="n")
 
@@ -868,9 +858,179 @@ class ResultsPanel(ttk.Frame):
                       fill=arc_color, font=("Segoe UI", 7, "bold"),
                       anchor="w")
 
-        # Step count label (top-left of diagram)
-        lx, ly = px(0, total_rise)
-        status_text = f"N = {n}"
+        # Step count label (above top landing)
+        lx, ly = px(total_run / 2, total_rise)
+        status_text = f"{n - 1} steps"
         status_color = OPTIMAL_COLOR if cfg.is_valid else INVALID_COLOR
-        c.create_text(lx + 4, ly - 6, text=status_text,
-                      fill=status_color, font=("Segoe UI", 10, "bold"), anchor="sw")
+        c.create_text(lx, ly - 6, text=status_text,
+                      fill=status_color, font=("Segoe UI", 10, "bold"), anchor="s")
+
+        # Step detail inset
+        self._draw_step_detail(c, cw, ch, cfg)
+
+        # Materials list (upper-left, below the step detail inset)
+        self._draw_materials_list(c, cw, ch, cfg)
+
+    # ------------------------------------------------------------------
+    # Step detail inset
+    # ------------------------------------------------------------------
+
+    def _draw_step_detail(self, c: tk.Canvas, cw: int, ch: int,
+                          cfg: "StepConfig"):
+        """Draw a circular inset in the upper-left showing a single zoomed step."""
+        riser = cfg.riser_height
+        tread = cfg.tread_depth
+        rot   = cfg.rule_of_thumb
+
+        # Inset geometry — lower-right corner
+        radius = 75
+        cx = cw - CANVAS_MARGIN - radius - 4
+        cy = ch - CANVAS_MARGIN - radius - 4
+
+        # Background circle
+        c.create_oval(cx - radius, cy - radius, cx + radius, cy + radius,
+                      fill="#F0F0F0", outline="#999999", width=1)
+
+        # Fit the step inside the circle with padding
+        pad = 22          # leave room for dimension arrows + labels
+        draw_w = radius * 2 - pad * 2   # available width for tread
+        draw_h = radius * 2 - pad * 2   # available height for riser
+        # Reserve top slice for the 2R+T label
+        label_reserve = 14
+        draw_h -= label_reserve
+
+        # Scale so both riser and tread fit
+        s = min(draw_w / tread, draw_h / riser)
+
+        step_w = tread * s   # pixels for tread
+        step_h = riser * s   # pixels for riser
+
+        # Position the step L-shape: bottom-left corner of the step
+        # Center the step within the available area (below the label reserve)
+        avail_cx = cx
+        avail_cy = cy + label_reserve / 2
+        sx0 = avail_cx - step_w / 2   # left edge of tread
+        sy1 = avail_cy + step_h / 2   # bottom of riser (lower tread surface)
+        sx1 = sx0 + step_w            # right edge of tread
+        sy0 = sy1 - step_h            # top of riser
+
+        # Draw the L-shaped step profile (filled)
+        # The step: vertical riser on the left, horizontal tread on the bottom
+        c.create_rectangle(sx0, sy0, sx1, sy1,
+                           fill=STEP_FILL, outline=STEP_OUTLINE, width=2)
+
+        # Riser dimension arrow (right side)
+        arr_x = sx1 + 8
+        c.create_line(arr_x, sy1, arr_x, sy0,
+                      arrow=tk.BOTH, fill=LABEL_COLOR, width=1)
+        c.create_text(arr_x + 3, (sy0 + sy1) / 2,
+                      text=f"{riser:.3f}\"", fill=LABEL_COLOR,
+                      font=("Segoe UI", 7), anchor="w")
+
+        # Tread dimension arrow (below)
+        arr_y = sy1 + 8
+        c.create_line(sx0, arr_y, sx1, arr_y,
+                      arrow=tk.BOTH, fill=LABEL_COLOR, width=1)
+        c.create_text((sx0 + sx1) / 2, arr_y + 3,
+                      text=f"{tread:.3f}\"", fill=LABEL_COLOR,
+                      font=("Segoe UI", 7), anchor="n")
+
+        # 2R+T label at the top of the inset
+        c.create_text(cx, cy - radius + 10,
+                      text=f"2R+T = {rot:.2f}\"",
+                      fill="#444455", font=("Segoe UI", 7, "bold"))
+
+    # ------------------------------------------------------------------
+    # Materials list
+    # ------------------------------------------------------------------
+
+    def _draw_materials_list(self, c: tk.Canvas, cw: int, ch: int,
+                             cfg: "StepConfig"):
+        """Draw a materials summary box in the upper-left area below the step inset."""
+        import math as _math
+
+        n_risers = cfg.n_risers
+        n_treads = n_risers - 1  # tread count = step count (risers - 1)
+        stringer_count = self._stringer_count
+        stair_width = self._stair_width
+        board_w = self._tread_board_width
+
+        # How many boards per tread to cover the stair width?
+        boards_per_tread = _math.ceil(stair_width / board_w)
+        total_tread_boards = boards_per_tread * n_treads
+
+        # Each tread board length = tread depth + nose overhang (~1")
+        # but we just report tread depth as the cut length
+        tread_cut_len = cfg.tread_depth
+
+        # Stringer lumber: next standard length >= stringer_length
+        sl_ft = cfg.stringer_length / 12.0
+        standard_lengths = [8, 10, 12, 14, 16, 18, 20]
+        stringer_lumber_ft = standard_lengths[-1]
+        for slen in standard_lengths:
+            if slen >= sl_ft:
+                stringer_lumber_ft = slen
+                break
+
+        # Position: upper-left of the diagram
+        box_x = CANVAS_MARGIN + 4
+        box_y = CANVAS_MARGIN + 4
+        line_h = 18
+        hdr_font = ("Segoe UI", 10, "bold")
+        body_font = ("Segoe UI", 9)
+        hdr_color = "#333344"
+        body_color = "#444455"
+
+        # Header
+        c.create_text(box_x, box_y, text="Materials List",
+                      fill=hdr_color, font=hdr_font, anchor="nw")
+        y = box_y + line_h + 2
+
+        # Separator line
+        c.create_line(box_x, y - 2, box_x + 180, y - 2,
+                      fill="#AAAAAA", width=1)
+
+        # Stringers
+        c.create_text(box_x, y, text="Stringers:",
+                      fill=hdr_color, font=("Segoe UI", 9, "bold"), anchor="nw")
+        y += line_h
+        c.create_text(box_x + 8, y,
+                      text=f"{stringer_count}x  2x12 x {stringer_lumber_ft}' ",
+                      fill=body_color, font=body_font, anchor="nw")
+        y += line_h
+
+        # Treads
+        c.create_text(box_x, y, text="Treads:",
+                      fill=hdr_color, font=("Segoe UI", 9, "bold"), anchor="nw")
+        y += line_h
+
+        # Find the board label for current width
+        board_label = f"{board_w}\""
+        from constants import TREAD_BOARD_OPTIONS
+        for lbl, w in TREAD_BOARD_OPTIONS.items():
+            if abs(w - board_w) < 0.01:
+                # Extract just the dimension part e.g. "1x6"
+                board_label = lbl.split(" ")[0]
+                break
+
+        if boards_per_tread == 1:
+            c.create_text(box_x + 8, y,
+                          text=f"{n_treads}x  {board_label} x {tread_cut_len:.1f}\"",
+                          fill=body_color, font=body_font, anchor="nw")
+        else:
+            c.create_text(box_x + 8, y,
+                          text=f"{total_tread_boards}x  {board_label} x {tread_cut_len:.1f}\"",
+                          fill=body_color, font=body_font, anchor="nw")
+            y += line_h
+            c.create_text(box_x + 8, y,
+                          text=f"({boards_per_tread} boards/tread x {n_treads} treads)",
+                          fill="#777777", font=("Segoe UI", 8), anchor="nw")
+        y += line_h
+
+        # Width coverage note
+        actual_coverage = boards_per_tread * board_w
+        overhang = actual_coverage - stair_width
+        if overhang > 0.1:
+            c.create_text(box_x + 8, y,
+                          text=f"Rip last board by {overhang:.2f}\"",
+                          fill="#996600", font=("Segoe UI", 8), anchor="nw")

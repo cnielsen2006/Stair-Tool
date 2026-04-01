@@ -11,16 +11,20 @@ A desktop stair calculator built with Python and tkinter that computes optimal s
 - **Interactive sliders** for total rise and run (in inches)
 - **Per-step constraint controls** — adjustable min/max riser height and tread depth (IBC/IRC defaults pre-loaded)
 - **Optimal step count selection** — scores all valid N values by closeness to ideal rise (7") and tread (11")
-- **Manual N override** — spinbox lets you pick any step count; constraints never override your choice
+- **Manual N override** — spinbox lets you pick any step count (including landing); constraints never override your choice
+- **Construction details** — stringer count, stair width, and tread lumber board size inputs
 - **Live stair diagram** — scaled canvas drawing with:
   - Step profile and filled rectangles
   - First-riser and first-tread dimension arrows
-  - 2×12 stringer overlay with plumb end cuts and notch marks
+  - Overall rise/run dimension callouts
+  - 2×12 stringer overlay with plumb end cuts, notch marks, and full 4-side dimensioning
   - Stair angle arc indicator (color-coded ideal/warn/bad zones)
   - Intermediate support markers when stringer span exceeds 8 ft
+  - **Materials list** (upper-left) — stringer and tread lumber requirements with board counts, sizes, and rip-cut notes
+  - **Step detail inset** (lower-right) — zoomed single-step view with riser/tread dimensions and 2R+T
 - **Comfort gauge** — color-coded 2R+T bar (ideal 24"–25")
-- **Results summary** — riser, tread, 2R+T, stringer length, support count/spacing, stair angle rating
-- **Settings persistence** — last-used values saved and restored on next launch
+- **Results summary** — riser, tread, 2R+T, stringer length/angle, support count/spacing
+- **Settings persistence** — all inputs (dimensions, constraints, construction details) saved and restored on next launch
 - **Reset button** — one click back to IBC/IRC defaults (Ctrl+R shortcut)
 
 ---

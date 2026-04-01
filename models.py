@@ -15,7 +15,7 @@ STRINGER_MAX_SPAN_IN = 96.0   # 8 ft — comfortable residential support spacing
 
 @dataclass
 class StepConfig:
-    n_steps: int          # number of risers
+    n_risers: int          # number of risers
     riser_height: float   # inches
     tread_depth: float    # inches
     score: float          # lower is better
@@ -115,5 +115,5 @@ class StairModel:
         valids = self.valid_configs()
         if not valids:
             return None, None
-        ns = [c.n_steps for c in valids]
+        ns = [c.n_risers for c in valids]
         return min(ns), max(ns)

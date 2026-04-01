@@ -26,6 +26,24 @@ GROUND_COLOR  = "#888888"
 OPTIMAL_COLOR = "#007700"
 INVALID_COLOR = "#CC0000"
 
+# Construction defaults
+DEFAULT_STRINGER_COUNT = 3       # typical residential: 3 stringers
+DEFAULT_STAIR_WIDTH    = 36.0    # inches (IBC min 36")
+DEFAULT_TREAD_BOARD_WIDTH = 5.5  # nominal 1×6 actual width (inches)
+
+# Common tread board widths (actual dimensions, inches)
+TREAD_BOARD_OPTIONS = {
+    "1x6 (5.5\")":  5.5,
+    "1x8 (7.25\")": 7.25,
+    "1x10 (9.25\")": 9.25,
+    "1x12 (11.25\")": 11.25,
+    "2x6 (5.5\")":  5.5,
+    "2x8 (7.25\")": 7.25,
+    "2x10 (9.25\")": 9.25,
+    "2x12 (11.25\")": 11.25,
+    "5/4x6 (5.5\")": 5.5,
+}
+
 # Persistence
 SETTINGS_FILE = "stair_settings.json"
 
