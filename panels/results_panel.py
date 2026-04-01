@@ -872,19 +872,49 @@ class ResultsPanel(ttk.Frame):
         self._draw_materials_list(c, cw, ch, cfg)
 
     # ------------------------------------------------------------------
+    # Triangle incircle helper
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _incircle(ax, ay, bx, by, cx_t, cy_t):
+        """Return (incenter_x, incenter_y, inradius) for triangle ABC.
+
+        The incenter is the point equidistant from all three sides,
+        and the inradius is that distance — the largest circle that
+        fits inside the triangle with equal whitespace to every edge.
+        """
+        import math as _math
+        # Side lengths opposite each vertex
+        a = _math.hypot(bx - cx_t, by - cy_t)   # side BC (opposite A)
+        b = _math.hypot(ax - cx_t, ay - cy_t)   # side AC (opposite B)
+        c_len = _math.hypot(ax - bx, ay - by)   # side AB (opposite C)
+        perimeter = a + b + c_len
+        if perimeter < 1e-6:
+            return (ax + bx + cx_t) / 3, (ay + by + cy_t) / 3, 0
+        # Incenter = weighted average of vertices by opposite side lengths
+        ix = (a * ax + b * bx + c_len * cx_t) / perimeter
+        iy = (a * ay + b * by + c_len * cy_t) / perimeter
+        # Inradius = 2 * area / perimeter  (area via shoelace)
+        area = abs((bx - ax) * (cy_t - ay) - (cx_t - ax) * (by - ay)) / 2
+        inradius = 2 * area / perimeter
+        return ix, iy, inradius
+
+    # ------------------------------------------------------------------
     # Step detail inset
     # ------------------------------------------------------------------
 
     def _draw_step_detail(self, c: tk.Canvas, cw: int, ch: int,
                           cfg: "StepConfig"):
-        """Draw a circular inset in the upper-left showing a single zoomed step."""
+        """Draw a circular inset inscribed in the lower-right white-space triangle."""
         riser = cfg.riser_height
         tread = cfg.tread_depth
         rot   = cfg.rule_of_thumb
 
-        # Inset geometry — inside the lower-right corner of the stair chart,
-        # where the rise and run dimension lines meet.
-        radius = 75
+        # Compute the incircle of the lower-right triangle bounded by
+        # the bottom stringer face dim line, the ground line, and the
+        # right-side rise dimension.
+        import math as _math
+        radius = 75  # default / max
         if self._model:
             total_run  = self._model.total_run
             total_rise = self._model.total_rise
@@ -892,11 +922,34 @@ class ResultsPanel(ttk.Frame):
             usable_w = cw - 2 * margin
             usable_h = ch - 2 * margin
             scale = min(usable_w / total_run, usable_h / total_rise) if total_run and total_rise else 1
-            # Anchor to the rise dim line (right) and ground line (bottom)
-            right_x = margin + total_run * scale + 32  # just inside rise dim line
-            ground_y = ch - margin                     # the dashed ground line
-            cx = right_x - radius
-            cy = ground_y - radius
+            ox = margin
+            oy = ch - margin
+
+            BOARD_W_IN = 11.25
+            sdim_gap = 24  # must match _redraw_canvas
+            angle = _math.atan2(total_rise, total_run)
+            cos_a, sin_a = _math.cos(angle), _math.sin(angle)
+            BW_div_cos = BOARD_W_IN / cos_a
+            BW_div_sin = BOARD_W_IN / sin_a
+
+            # Bottom-face dim line endpoints (canvas coords)
+            P3cx, P3cy = ox + BW_div_sin * scale, oy
+            P2cx, P2cy = ox + total_run * scale, oy - (total_rise - BW_div_cos) * scale
+            bfd_x0, bfd_y0 = P3cx, P3cy + sdim_gap
+            bfd_x1, bfd_y1 = P2cx, P2cy + sdim_gap
+
+            # Right-wall / ground corner
+            right_ground_cx = ox + total_run * scale
+            right_ground_cy = oy
+
+            # Incircle of the triangle (equal whitespace to all 3 edges)
+            cx, cy, inradius = self._incircle(
+                bfd_x0, bfd_y0,           # A: bottom-face dim start
+                right_ground_cx, right_ground_cy,  # B: right/ground corner
+                bfd_x1, bfd_y1,           # C: bottom-face dim end
+            )
+            # Use the inradius but cap to a reasonable range
+            radius = max(40, min(inradius - 4, 90))
         else:
             cx = cw - CANVAS_MARGIN - radius - 4
             cy = ch - CANVAS_MARGIN - radius - 4
@@ -986,9 +1039,43 @@ class ResultsPanel(ttk.Frame):
                 stringer_lumber_ft = slen
                 break
 
-        # Position: upper-left of the diagram
-        box_x = CANVAS_MARGIN + 4
-        box_y = CANVAS_MARGIN + 4
+        # Position: incircle of the upper-left white-space triangle
+        # bounded by the top stringer face dim line, the left wall,
+        # and the top landing line.
+        # The incenter gives equal whitespace to all 3 edges.
+        if self._model:
+            total_run  = self._model.total_run
+            total_rise = self._model.total_rise
+            margin = CANVAS_MARGIN
+            usable_w = cw - 2 * margin
+            usable_h = ch - 2 * margin
+            scale = min(usable_w / total_run, usable_h / total_rise) if total_run and total_rise else 1
+            ox = margin
+            oy = ch - margin
+            sdim_gap = 24  # must match _redraw_canvas
+
+            # Top-face dim line endpoints (canvas coords)
+            P0cx, P0cy = ox, oy
+            P1cx, P1cy = ox + total_run * scale, oy - total_rise * scale
+            tfd_x0, tfd_y0 = P0cx, P0cy - sdim_gap
+            tfd_x1, tfd_y1 = P1cx, P1cy - sdim_gap
+
+            # Left-wall / top-landing corner
+            left_top_cx = ox
+            left_top_cy = oy - total_rise * scale
+
+            # Incircle of the triangle (equal whitespace to all 3 edges)
+            inc_cx, inc_cy, _ = self._incircle(
+                tfd_x0, tfd_y0,           # A: top-face dim start (lower-left)
+                left_top_cx, left_top_cy,  # B: left-wall/top-landing corner
+                tfd_x1, tfd_y1,           # C: top-face dim end (upper-right)
+            )
+            # Offset so the text block is roughly centered on the incenter
+            box_x = inc_cx - 80
+            box_y = inc_cy - 50
+        else:
+            box_x = CANVAS_MARGIN + 4
+            box_y = CANVAS_MARGIN + 4
         line_h = 18
         hdr_font = ("Segoe UI", 10, "bold")
         body_font = ("Segoe UI", 9)

@@ -46,6 +46,9 @@ class LabeledSlider(ttk.Frame):
         self._entry.bind("<FocusOut>",  self._on_entry_commit)
         self._entry_var.trace_add("write", self._on_entry_typed)
 
+        # Mouse-wheel support: Shift+scroll = fine (1/5 speed)
+        self._scale.bind("<MouseWheel>", self._on_mousewheel)
+
         self._update_unit_label()
 
     def _update_unit_label(self):
@@ -68,6 +71,22 @@ class LabeledSlider(ttk.Frame):
         self._updating = False
         if self._command:
             self._command()
+
+    def _on_mousewheel(self, event):
+        """Handle mouse wheel on slider. Shift = fine adjustment (1/5 speed)."""
+        # Windows: event.delta is typically ±120 per notch
+        direction = 1 if event.delta > 0 else -1
+        span = self._to - self._from
+        step = span * 0.01  # normal: 1% of range per notch
+        if event.state & 0x1:  # Shift key held
+            step *= 0.2       # fine: 0.2% of range per notch
+        step = max(step, self._resolution)  # never less than resolution
+        new_val = self._var.get() + direction * step
+        new_val = max(self._from, min(self._to, new_val))
+        new_val = round(new_val / self._resolution) * self._resolution
+        self._var.set(new_val)
+        self._on_scale_moved()
+        return "break"  # prevent default scroll behavior
 
     def _on_entry_typed(self, *_):
         pass  # validation happens on commit
