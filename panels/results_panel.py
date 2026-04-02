@@ -20,7 +20,8 @@ class ResultsPanel(ttk.Frame):
         self._model: Optional[StairModel] = None
         self._selected_risers: Optional[int]   = None
         self._all_configs = []
-        self._current_rot: Optional[float] = None  # 2R+T for gauge
+        self._current_rot: Optional[float] = None  # 2R+T value (read by app.py)
+
         self._stringer_count: int = 3
         self._stair_width: float = 36.0
         self._tread_board_width: float = 5.5
@@ -101,12 +102,6 @@ class ResultsPanel(ttk.Frame):
             if key == "angle_rating":
                 self._angle_rating_label = val_lbl
 
-        # Comfort gauge — compact bar on row 2, columns 4-7 (beside angle info)
-        self._gauge_canvas = tk.Canvas(stats, height=10, bd=0,
-                                       highlightthickness=0, background="#EEEEEE")
-        self._gauge_canvas.grid(row=2, column=4, columnspan=4, sticky="ew", padx=(8, 0), pady=(4, 0))
-        self._gauge_canvas.bind("<Configure>", self._redraw_gauge)
-
         self._status_label = None  # removed
 
     # ------------------------------------------------------------------
@@ -181,7 +176,8 @@ class ResultsPanel(ttk.Frame):
                 self._model.min_tread <= tread <= self._model.max_tread
             )
             rot = 2 * riser + tread
-            stringer_len = math.sqrt(self._model.total_rise**2 + self._model.total_run**2)
+            stringer_top_y = (n - 1) * riser
+            stringer_len = math.sqrt(stringer_top_y**2 + self._model.total_run**2)
             from models import STRINGER_MAX_SPAN_IN
             n_supports = max(0, math.ceil(stringer_len / STRINGER_MAX_SPAN_IN) - 1)
             spacing = stringer_len / (n_supports + 1) if n_supports > 0 else stringer_len
@@ -194,14 +190,13 @@ class ResultsPanel(ttk.Frame):
             for var in self._stat_vars.values():
                 var.set("—")
             self._current_rot = None
-            self._redraw_gauge()
             return
-
 
         self._stat_vars["riser"].set(f"{cfg.riser_height:.3f}\"")
         self._stat_vars["tread"].set(f"{cfg.tread_depth:.3f}\"")
         rot = cfg.rule_of_thumb
         self._current_rot = rot
+
         # Include comfort rating inline with the 2R+T value
         if COMFORT_IDEAL_LO <= rot <= COMFORT_IDEAL_HI:
             comfort = "Ideal"
@@ -214,7 +209,6 @@ class ResultsPanel(ttk.Frame):
         else:
             comfort = "Too shallow"
         self._stat_vars["rot"].set(f"{rot:.2f}\" — {comfort}")
-        self._redraw_gauge()
 
         # Angle info
         import math as _math
@@ -233,7 +227,7 @@ class ResultsPanel(ttk.Frame):
         self._stat_vars["angle_rating"].set(ang_rating)
         self._angle_rating_label.config(foreground=ang_color)
 
-        # Stringer info (stringer_length is same for all N since total_rise/run fixed)
+        # Stringer info (length varies with N since slope = riser/tread)
         sl_in = cfg.stringer_length
         sl_ft = sl_in / 12.0
         self._stat_vars["stringer"].set(f"{sl_in:.2f}\"")
@@ -254,50 +248,6 @@ class ResultsPanel(ttk.Frame):
 
     # ------------------------------------------------------------------
     # Comfort gauge
-    # ------------------------------------------------------------------
-
-    def _redraw_gauge(self, _=None):
-        gc = self._gauge_canvas
-        gc.delete("all")
-        gw = gc.winfo_width() or 200
-        gh = gc.winfo_height() or 10
-
-        rot = self._current_rot
-
-        full_lo = COMFORT_WARN_LO - 2
-        full_hi = COMFORT_WARN_HI + 2
-
-        def rot_to_x(v):
-            return max(0, min(gw, (v - full_lo) / (full_hi - full_lo) * gw))
-
-        zones = [
-            (full_lo,          COMFORT_WARN_LO,  "#E05050"),
-            (COMFORT_WARN_LO,  COMFORT_IDEAL_LO, "#E0A020"),
-            (COMFORT_IDEAL_LO, COMFORT_IDEAL_HI, "#40AA40"),
-            (COMFORT_IDEAL_HI, COMFORT_WARN_HI,  "#E0A020"),
-            (COMFORT_WARN_HI,  full_hi,           "#E05050"),
-        ]
-        for z_lo, z_hi, color in zones:
-            x0 = rot_to_x(z_lo)
-            x1 = rot_to_x(z_hi)
-            if x1 > x0:
-                gc.create_rectangle(x0, 0, x1, gh, fill=color, outline="")
-
-        # Zone boundary ticks
-        for v in (COMFORT_WARN_LO, COMFORT_IDEAL_LO, COMFORT_IDEAL_HI, COMFORT_WARN_HI):
-            x = rot_to_x(v)
-            gc.create_line(x, 0, x, gh, fill="#FFFFFF", width=1)
-
-        if rot is None:
-            return
-
-        # Indicator needle
-        needle_x = rot_to_x(rot)
-        gc.create_line(needle_x, 0, needle_x, gh, fill="#000000", width=2)
-        gc.create_polygon(
-            needle_x - 3, 0, needle_x + 3, 0, needle_x, 4,
-            fill="#000000", outline="")
-
     # ------------------------------------------------------------------
     # Canvas drawing
     # ------------------------------------------------------------------
@@ -436,7 +386,7 @@ class ResultsPanel(ttk.Frame):
         #
         # Coordinate system (physical inches, origin = stair bottom-left):
         #   x → run direction,  y → rise direction (up)
-        #   The stringer centre-line runs from (0,0) to (total_run, total_rise).
+        #   The stringer centre-line runs from (0,0) to (total_run, stringer_top_y).
         #   Top face = centre-line offset HALF_W in the +perp direction (above).
         #   Bottom face = centre-line offset HALF_W in the -perp direction.
         #
@@ -447,8 +397,16 @@ class ResultsPanel(ttk.Frame):
         HALF_W     = BOARD_W_IN / 2.0
 
         import math as _math
-        angle = _math.atan2(total_rise, total_run)
+        # The stringer top face must pass through the step corners at
+        # (i*tread, i*riser).  Their slope is riser/tread, which differs
+        # from total_rise/total_run because N risers but only N-1 treads.
+        angle = _math.atan2(riser, tread)
         cos_a, sin_a = _math.cos(angle), _math.sin(angle)
+
+        # The stringer top face at x=total_run reaches y=(N-1)*riser,
+        # NOT total_rise (which is N*riser).  The last riser from there
+        # up to the landing is part of the stair, not the stringer slope.
+        stringer_top_y = (n - 1) * riser
 
         # Canvas-space helpers: offsets from a reference point.
         def along(dist_in):
@@ -472,12 +430,12 @@ class ResultsPanel(ttk.Frame):
         # those corners, which in the normalised frame is simply the diagonal
         # itself (they're collinear by definition).
         #
-        # So: top-face line = the (0,0)→(total_run, total_rise) diagonal.
+        # So: top-face line = the (0,0)→(total_run, stringer_top_y) diagonal.
         # Centre-line = top face offset HALF_W downward (below face).
         # Origin for drawing: bottom-left corner (0,0) in physical space,
         # shifted HALF_W below the top face.
         #
-        # Canvas anchor for the centre-line start:
+        # Canvas anchor for centre-line start:
         ref_cx, ref_cy = px(0, 0)   # top-face at x=0 is physical (0, 0)
         # centre-line start = top-face start offset HALF_W below (perp -HALF_W)
         cl_x0 = ref_cx + perp(-HALF_W)[0]
@@ -531,16 +489,15 @@ class ResultsPanel(ttk.Frame):
         # But for simplicity we just clip the bottom to the ground line.
         #
         # For the top end (plumb cut at x = total_run):
-        #   top-face at x=total_run: physical (total_run, total_rise)
-        #   bottom-face at plumb x=total_run: y = total_run*tan θ - BOARD_W_IN/cos θ
-        #   = total_rise - BOARD_W_IN/cos θ   (which is below total_rise)
+        #   top-face at x=total_run: physical (total_run, stringer_top_y)
+        #   bottom-face at plumb x=total_run: y = stringer_top_y - BOARD_W_IN/cos θ
         #
         # Build the polygon as a series of physical points, convert to canvas.
         # We use 6 vertices (hexagon for plumb-cut board):
         #
         #  P0 (top-face, bottom-end)    = (0,            0)
-        #  P1 (top-face, top-end)       = (total_run,    total_rise)
-        #  P2 (bot-face, top-end plumb) = (total_run,    total_rise - BW/cos θ)
+        #  P1 (top-face, top-end)       = (total_run,    stringer_top_y)
+        #  P2 (bot-face, top-end plumb) = (total_run,    stringer_top_y - BW/cos θ)
         #  P3 (bot-face along bottom run back to where it hits ground if needed,
         #       otherwise straight to P4)
         #  P4 (ground at x = BW/sin θ)                      ← bottom foot
@@ -549,12 +506,14 @@ class ResultsPanel(ttk.Frame):
         BW_div_cos = BOARD_W_IN / cos_a      # vertical drop across board width
         BW_div_sin = BOARD_W_IN / sin_a      # horizontal run across board width
 
+        # The stringer top face reaches (total_run, stringer_top_y) — one
+        # riser below the landing.  The plumb cut is vertical at x=total_run.
         # Physical vertices
         poly_phys = [
-            (0.0,        0.0),                          # P0 top-face bottom-end
-            (total_run,  total_rise),                   # P1 top-face top-end
-            (total_run,  total_rise - BW_div_cos),      # P2 bottom-face top-end (plumb)
-            (BW_div_sin, 0.0),                          # P3 bottom-face hits ground
+            (0.0,        0.0),                                  # P0 top-face bottom-end
+            (total_run,  stringer_top_y),                       # P1 top-face top-end
+            (total_run,  stringer_top_y - BW_div_cos),          # P2 bottom-face top-end (plumb)
+            (BW_div_sin, 0.0),                                  # P3 bottom-face hits ground
         ]
         # Convert to canvas coords
         poly_canvas = []
@@ -568,10 +527,10 @@ class ResultsPanel(ttk.Frame):
 
         # ── Stringer board: dimension all 4 sides ──────────────────────
         # The cut stringer is a 4-sided shape (parallelogram with plumb ends):
-        #   P0 = (0, 0)                         top-face, bottom-end (stair origin)
-        #   P1 = (total_run, total_rise)         top-face, top-end
-        #   P2 = (total_run, total_rise-BW/cosθ) bottom-face, top-end (plumb cut)
-        #   P3 = (BW/sinθ, 0)                   bottom-face, bottom-end (at ground)
+        #   P0 = (0, 0)                              top-face, bottom-end
+        #   P1 = (total_run, stringer_top_y)           top-face, top-end
+        #   P2 = (total_run, stringer_top_y-BW/cosθ)  bottom-face, top-end (plumb)
+        #   P3 = (BW/sinθ, 0)                         bottom-face, bottom-end
         #
         # Side lengths:
         #   P0→P1 (top face)    = stringer_length  (hypotenuse)
@@ -581,15 +540,16 @@ class ResultsPanel(ttk.Frame):
         #
         # Canvas coords of all four corners
         P0cx, P0cy = px(0.0,        0.0)
-        P1cx, P1cy = px(total_run,  total_rise)
-        P2cx, P2cy = px(total_run,  total_rise - BW_div_cos)
+        P1cx, P1cy = px(total_run,  stringer_top_y)
+        P2cx, P2cy = px(total_run,  stringer_top_y - BW_div_cos)
         P3cx, P3cy = px(BW_div_sin, 0.0)
 
         str_col = "#7A5533"
         sdim_gap = 24   # pixels gap between face and dimension line
 
         # --- Side 1: top face P0→P1 (offset straight up in canvas) ---
-        sl_ft = cfg.stringer_length / 12.0
+        top_face_len = _math.sqrt(total_run**2 + stringer_top_y**2)
+        sl_ft = top_face_len / 12.0
         tfd_x0, tfd_y0 = P0cx, P0cy - sdim_gap
         tfd_x1, tfd_y1 = P1cx, P1cy - sdim_gap
         c.create_line(P0cx, P0cy, tfd_x0, tfd_y0, fill=str_col, width=1)
@@ -597,7 +557,7 @@ class ResultsPanel(ttk.Frame):
         c.create_line(tfd_x0, tfd_y0, tfd_x1, tfd_y1, arrow=tk.BOTH, fill=str_col, width=1)
         tfd_mx, tfd_my = (tfd_x0 + tfd_x1) / 2, (tfd_y0 + tfd_y1) / 2
         c.create_text(tfd_mx, tfd_my - 6,
-                      text=f"Top face: {cfg.stringer_length:.2f}\" ({sl_ft:.2f} ft)",
+                      text=f"Top face: {top_face_len:.2f}\" ({sl_ft:.2f} ft)",
                       fill=str_col, font=("Segoe UI", 7), anchor="s")
 
         # --- Side 2: top plumb cut P1→P2 (to the right of the cut) ---
@@ -613,7 +573,7 @@ class ResultsPanel(ttk.Frame):
 
         # --- Side 3: bottom face P2→P3 (offset straight down in canvas) ---
         import math as _m3
-        bot_face_in = _m3.sqrt((total_run - BW_div_sin)**2 + (total_rise - BW_div_cos)**2)
+        bot_face_in = _m3.sqrt((total_run - BW_div_sin)**2 + (stringer_top_y - BW_div_cos)**2)
         bot_face_ft = bot_face_in / 12.0
         bfd_x0, bfd_y0 = P3cx, P3cy + sdim_gap
         bfd_x1, bfd_y1 = P2cx, P2cy + sdim_gap
@@ -637,11 +597,8 @@ class ResultsPanel(ttk.Frame):
                       fill=str_col, font=("Segoe UI", 7), anchor="n")
 
         # Centre-line (mid-board reference) — from P0+perp(-HALF_W) to P1+perp(-HALF_W)
-        # In physical space the centre-line midpoint at each end:
-        #   bottom: physical (0,0) offset HALF_W perpendicular below top face
-        #   top:    physical (total_run, total_rise) offset similarly
         ml_x0_c, ml_y0_c = px(0, 0)
-        ml_x1_c, ml_y1_c = px(total_run, total_rise)
+        ml_x1_c, ml_y1_c = px(total_run, stringer_top_y)
         # Offset both ends HALF_W perpendicular (below top face = perp(-HALF_W))
         ml_x0_c += perp(-HALF_W)[0]; ml_y0_c += perp(-HALF_W)[1]
         ml_x1_c += perp(-HALF_W)[0]; ml_y1_c += perp(-HALF_W)[1]
@@ -714,7 +671,7 @@ class ResultsPanel(ttk.Frame):
             for i in range(1, cfg.support_count + 1):
                 t_frac = i / (cfg.support_count + 1)
                 sup_phys_x = t_frac * total_run
-                sup_phys_y = t_frac * total_rise
+                sup_phys_y = t_frac * stringer_top_y
                 scx_top, scy_top = px(sup_phys_x, sup_phys_y)
                 # Place on centre-line (HALF_W below top face)
                 scx = scx_top + perp(-HALF_W)[0]
@@ -892,13 +849,6 @@ class ResultsPanel(ttk.Frame):
                       fill=arc_color, font=("Segoe UI", 7, "bold"),
                       anchor="w")
 
-        # Step count label (above top landing)
-        lx, ly = px(total_run / 2, total_rise)
-        status_text = f"{n - 1} steps"
-        status_color = OPTIMAL_COLOR if cfg.is_valid else INVALID_COLOR
-        c.create_text(lx, ly - 6, text=status_text,
-                      fill=status_color, font=("Segoe UI", 10, "bold"), anchor="s")
-
         # Step detail inset
         self._draw_step_detail(c, cw, ch, cfg)
 
@@ -961,14 +911,15 @@ class ResultsPanel(ttk.Frame):
 
             BOARD_W_IN = 11.25
             sdim_gap = 24  # must match _redraw_canvas
-            angle = _math.atan2(total_rise, total_run)
+            n = cfg.n_risers
+            angle = _math.atan2(riser, tread)
             cos_a, sin_a = _math.cos(angle), _math.sin(angle)
             BW_div_cos = BOARD_W_IN / cos_a
             BW_div_sin = BOARD_W_IN / sin_a
-
             # Bottom-face dim line endpoints (canvas coords)
             P3cx, P3cy = ox + BW_div_sin * scale, oy
-            P2cx, P2cy = ox + total_run * scale, oy - (total_rise - BW_div_cos) * scale
+            stringer_top_y = (n - 1) * riser
+            P2cx, P2cy = ox + total_run * scale, oy - (stringer_top_y - BW_div_cos) * scale
             bfd_x0, bfd_y0 = P3cx, P3cy + sdim_gap
             bfd_x1, bfd_y1 = P2cx, P2cy + sdim_gap
 
@@ -1167,13 +1118,11 @@ class ResultsPanel(ttk.Frame):
         # The 2 outer stringers are uncut; interior stringers get notched.
         n_cut = max(0, stringer_count - 2)
         if n_cut > 0 and self._model:
-            total_run  = self._model.total_run
-            total_rise = self._model.total_rise
-            angle = _math.atan2(total_rise, total_run)
-            cos_a = _math.cos(angle)
-
             riser = cfg.riser_height
             tread_d = cfg.tread_depth
+
+            angle = _math.atan2(riser, tread_d)
+            cos_a = _math.cos(angle)
 
             # Notch depth perpendicular to board face = riser × cos(θ)
             BOARD_W_IN = 11.25  # actual 2×12 width

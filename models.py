@@ -86,8 +86,11 @@ class StairModel:
             s   = self._score(riser, tread)
             rot = 2 * riser + tread
 
-            # Stringer diagonal: hypotenuse of total_rise × total_run triangle
-            stringer_len = math.sqrt(self.total_rise ** 2 + self.total_run ** 2)
+            # Stringer diagonal: hypotenuse of stringer slope triangle.
+            # Top face runs through step corners at slope riser/tread, reaching
+            # y = (n-1)*riser at x = total_run (one riser below the landing).
+            stringer_top_y = (n - 1) * riser
+            stringer_len = math.sqrt(stringer_top_y ** 2 + self.total_run ** 2)
 
             # Intermediate supports: how many posts/hangers needed between top and bottom
             # bearing points, keeping each span ≤ STRINGER_MAX_SPAN_IN
