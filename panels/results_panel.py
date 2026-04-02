@@ -688,6 +688,9 @@ class ResultsPanel(ttk.Frame):
                       font=("Segoe UI", 7), anchor="w")
 
         # --- Side 3: bottom face P2→P3 (offset straight down in canvas) ---
+        import math as _m3
+        bot_face_in = _m3.sqrt((total_run - BW_div_sin)**2 + (total_rise - BW_div_cos)**2)
+        bot_face_ft = bot_face_in / 12.0
         bfd_x0, bfd_y0 = P3cx, P3cy + sdim_gap
         bfd_x1, bfd_y1 = P2cx, P2cy + sdim_gap
         c.create_line(P3cx, P3cy, bfd_x0, bfd_y0, fill=str_col, width=1)
@@ -695,7 +698,7 @@ class ResultsPanel(ttk.Frame):
         c.create_line(bfd_x0, bfd_y0, bfd_x1, bfd_y1, arrow=tk.BOTH, fill=str_col, width=1)
         bfd_mx, bfd_my = (bfd_x0 + bfd_x1) / 2, (bfd_y0 + bfd_y1) / 2
         c.create_text(bfd_mx, bfd_my + 6,
-                      text=f"Bottom face: {cfg.stringer_length:.2f}\" ({sl_ft:.2f} ft)",
+                      text=f"Bottom face: {bot_face_in:.2f}\" ({bot_face_ft:.2f} ft)",
                       fill=str_col, font=("Segoe UI", 7), anchor="n")
 
         # --- Side 4: bottom foot P3→P0 (horizontal at ground, below) ---
@@ -814,31 +817,96 @@ class ResultsPanel(ttk.Frame):
         lumber_in = lumber_ft_val * 12.0
         if lumber_in > 0 and lumber_in < stringer_len_in:
             import math as _math
-            JOIN_COLOR = "#DD2200"
+            JOIN_COLOR = "#CC0000"
+            OVERHANG = 8.0  # inches beyond board edges for visibility
             n_joins = _math.ceil(stringer_len_in / lumber_in) - 1
+            # Canvas-space perpendicular to the stringer direction.
+            # along direction in canvas = (cos_a, -sin_a) (un-scaled).
+            # True perpendicular in canvas (rotated 90° CW) = (-(-sin_a), cos_a)
+            #   = (sin_a, cos_a) — but we want the one pointing "below" the
+            #   top face (toward the bottom face / ground side), so negate:
+            #   cross_dir = (-sin_a, -cos_a) per unit inch.
+            # We'll scale manually.
+            def cross(dist_in):
+                """Canvas-perpendicular to stringer, +ve = above top face."""
+                return -dist_in * sin_a * scale, -dist_in * cos_a * scale
+
             for ji in range(1, n_joins + 1):
                 d_in = ji * lumber_in  # distance along stringer from bottom
                 if d_in >= stringer_len_in:
                     break
-                # Physical position of the join on the top face
-                frac = d_in / stringer_len_in
-                join_phys_x = frac * total_run
-                join_phys_y = frac * total_rise
-                # Canvas position on top face
-                jt_cx, jt_cy = px(join_phys_x, join_phys_y)
-                # Bottom face: offset perpendicular by -BOARD_W_IN
-                jb_cx = jt_cx + perp(-BOARD_W_IN)[0]
-                jb_cy = jt_cy + perp(-BOARD_W_IN)[1]
-                # Draw the join line across the full board width
-                c.create_line(jt_cx, jt_cy, jb_cx, jb_cy,
+                # Position on the top face at distance d_in along the stringer
+                along_x, along_y = along(d_in)
+                tf_cx, tf_cy = px(0, 0)
+                tf_cx += along_x
+                tf_cy += along_y
+                # Line extends from above the top face to below the bottom face
+                # using true canvas perpendicular direction
+                ja_cx = tf_cx + cross(OVERHANG)[0]
+                ja_cy = tf_cy + cross(OVERHANG)[1]
+                jb_cx = tf_cx + cross(-BOARD_W_IN - OVERHANG)[0]
+                jb_cy = tf_cy + cross(-BOARD_W_IN - OVERHANG)[1]
+                # Draw the join line perpendicular across the board
+                c.create_line(ja_cx, ja_cy, jb_cx, jb_cy,
                               fill=JOIN_COLOR, width=2, dash=(6, 3))
-                # Label
-                lbl_cx = jb_cx + perp(-4)[0]
-                lbl_cy = jb_cy + perp(-4)[1]
+                # Label below bottom face
+                lbl_cx = tf_cx + cross(-BOARD_W_IN - OVERHANG - 4)[0]
+                lbl_cy = tf_cy + cross(-BOARD_W_IN - OVERHANG - 4)[1]
                 c.create_text(lbl_cx, lbl_cy,
                               text=f"Join {ji}",
-                              fill=JOIN_COLOR, font=("Segoe UI", 6, "bold"),
+                              fill=JOIN_COLOR, font=("Segoe UI", 7, "bold"),
                               anchor="n")
+
+            # ── Per-board segment dimensions along top face ──────────
+            # Build list of breakpoints along the stringer (inches from bottom end)
+            breaks = [0.0]
+            for ji in range(1, n_joins + 1):
+                d = ji * lumber_in
+                if d < stringer_len_in:
+                    breaks.append(d)
+            breaks.append(stringer_len_in)
+
+            BD_COLOR = "#995522"
+            # Offset further than the overall dim line (sdim_gap=24) so they
+            # don't overlap.  Use straight canvas-Y like the overall dims.
+            bd_gap = sdim_gap + 18
+
+            for si in range(len(breaks) - 1):
+                d0 = breaks[si]
+                d1 = breaks[si + 1]
+                seg_len = d1 - d0
+
+                # Endpoints on top face
+                a0x, a0y = along(d0)
+                a1x, a1y = along(d1)
+                base_x, base_y = px(0, 0)
+                t0x = base_x + a0x
+                t0y = base_y + a0y
+                t1x = base_x + a1x
+                t1y = base_y + a1y
+
+                # Dim line offset straight up in canvas (same direction as
+                # the overall top-face dim, but further out)
+                s0x, s0y = t0x, t0y - bd_gap
+                s1x, s1y = t1x, t1y - bd_gap
+
+                # Tick marks from top face to dim line
+                c.create_line(t0x, t0y, s0x, s0y, fill=BD_COLOR, width=1)
+                c.create_line(t1x, t1y, s1x, s1y, fill=BD_COLOR, width=1)
+
+                # Dimension line with arrows
+                c.create_line(s0x, s0y, s1x, s1y,
+                              arrow=tk.BOTH, fill=BD_COLOR, width=1)
+
+                # Label at midpoint, above the dim line
+                mx = (s0x + s1x) / 2
+                my = (s0y + s1y) / 2
+                seg_ft = seg_len / 12.0
+                lbl = f"{seg_len:.1f}\" ({seg_ft:.1f}')"
+                c.create_text(mx, my - 6,
+                              text=lbl, fill=BD_COLOR,
+                              font=("Segoe UI", 7),
+                              anchor="s")
 
         # ── Stair angle arc indicator ──────────────────────────────────
         # Draw a protractor-style arc at the bottom-left corner of the stair

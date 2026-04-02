@@ -25,6 +25,8 @@ A desktop stair calculator built with Python and tkinter that computes optimal s
   - **Step detail inset** — zoomed single-step view inscribed in the lower-right whitespace triangle (incircle positioning)
 - **Comfort gauge** — color-coded 2R+T bar (ideal 24"–25")
 - **Results summary** — riser, tread, 2R+T, stringer length/angle, support count/spacing
+- **Board join markers** — when selected lumber is shorter than the stringer, perpendicular join lines and per-segment dimension callouts are drawn along the stringer
+- **Single-instance enforcement** — only one window can run at a time; re-launching brings the existing window to front
 - **Settings persistence** — all inputs (dimensions, constraints, construction details) saved and restored on next launch
 - **Reset button** — one click back to IBC/IRC defaults (Ctrl+R shortcut)
 
