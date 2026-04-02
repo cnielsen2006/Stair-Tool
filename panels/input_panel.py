@@ -8,6 +8,7 @@ from constants import (
     RUN_MIN_IN,  RUN_MAX_IN,
     DEFAULT_STRINGER_COUNT, DEFAULT_STAIR_WIDTH,
     DEFAULT_TREAD_BOARD_WIDTH, TREAD_BOARD_OPTIONS,
+    DEFAULT_STRINGER_LUMBER_FT, STRINGER_LUMBER_OPTIONS,
 )
 from widgets.labeled_slider import LabeledSlider
 from widgets.constraint_row import ConstraintRow
@@ -22,6 +23,7 @@ _DEFAULTS = {
     "stringer_count":   DEFAULT_STRINGER_COUNT,
     "stair_width":      DEFAULT_STAIR_WIDTH,
     "tread_board_width": DEFAULT_TREAD_BOARD_WIDTH,
+    "stringer_lumber_ft": DEFAULT_STRINGER_LUMBER_FT,
 }
 
 
@@ -110,20 +112,42 @@ class InputPanel(ttk.LabelFrame):
         # Tread board width (dropdown)
         ttk.Label(cons_frame, text="Tread Lumber:", font=("Segoe UI", 9, "bold")).grid(
             row=2, column=0, sticky="w", pady=(2, 0))
-        # Find the label matching the saved width
+        # Restore the exact label if saved, otherwise match by width
+        saved_label = iv.get("tread_board_label", "")
         saved_bw = iv["tread_board_width"]
         board_labels = list(TREAD_BOARD_OPTIONS.keys())
         initial_label = board_labels[0]
-        for lbl, w in TREAD_BOARD_OPTIONS.items():
-            if abs(w - saved_bw) < 0.01:
-                initial_label = lbl
-                break
+        if saved_label in TREAD_BOARD_OPTIONS:
+            initial_label = saved_label
+        else:
+            for lbl, w in TREAD_BOARD_OPTIONS.items():
+                if abs(w - saved_bw) < 0.01:
+                    initial_label = lbl
+                    break
         self._tread_board_var = tk.StringVar(value=initial_label)
         self._tread_board_combo = ttk.Combobox(
             cons_frame, textvariable=self._tread_board_var,
             values=board_labels, state="readonly", width=14)
         self._tread_board_combo.grid(row=2, column=1, sticky="w", padx=(4, 0), pady=(2, 0))
         self._tread_board_combo.bind("<<ComboboxSelected>>", lambda _: self._changed())
+
+        # Stringer lumber length
+        ttk.Label(cons_frame, text="Stringer Lumber:", font=("Segoe UI", 9, "bold")).grid(
+            row=3, column=0, sticky="w", pady=(2, 0))
+        lumber_labels = ["Auto"] + [f"{ft}'" for ft in STRINGER_LUMBER_OPTIONS if ft > 0]
+        saved_lumber = iv["stringer_lumber_ft"]
+        if saved_lumber == 0:
+            initial_lumber = "Auto"
+        else:
+            initial_lumber = f"{saved_lumber}'"
+            if initial_lumber not in lumber_labels:
+                initial_lumber = "Auto"
+        self._stringer_lumber_var = tk.StringVar(value=initial_lumber)
+        self._stringer_lumber_combo = ttk.Combobox(
+            cons_frame, textvariable=self._stringer_lumber_var,
+            values=lumber_labels, state="readonly", width=14)
+        self._stringer_lumber_combo.grid(row=3, column=1, sticky="w", padx=(4, 0), pady=(2, 0))
+        self._stringer_lumber_combo.bind("<<ComboboxSelected>>", lambda _: self._changed())
 
         # --- Reset button ---
         ttk.Separator(self, orient="horizontal").pack(fill="x", pady=(12, 6))
@@ -156,6 +180,14 @@ class InputPanel(ttk.LabelFrame):
             stair_width = DEFAULT_STAIR_WIDTH
         board_label = self._tread_board_var.get()
         tread_board_width = TREAD_BOARD_OPTIONS.get(board_label, DEFAULT_TREAD_BOARD_WIDTH)
+        lumber_sel = self._stringer_lumber_var.get()
+        if lumber_sel == "Auto":
+            stringer_lumber_ft = 0
+        else:
+            try:
+                stringer_lumber_ft = int(lumber_sel.rstrip("'"))
+            except ValueError:
+                stringer_lumber_ft = 0
         return {
             "total_rise":       self.rise_slider.get(),
             "total_run":        self.run_slider.get(),
@@ -166,4 +198,6 @@ class InputPanel(ttk.LabelFrame):
             "stringer_count":   stringer_count,
             "stair_width":      stair_width,
             "tread_board_width": tread_board_width,
+            "tread_board_label": board_label,
+            "stringer_lumber_ft": stringer_lumber_ft,
         }

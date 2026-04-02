@@ -94,6 +94,8 @@ class App:
         stringer_count = inputs.pop("stringer_count", 3)
         stair_width = inputs.pop("stair_width", 36.0)
         tread_board_width = inputs.pop("tread_board_width", 5.5)
+        tread_board_label = inputs.pop("tread_board_label", "")
+        stringer_lumber_ft = inputs.pop("stringer_lumber_ft", 0)
 
         model = StairModel(**inputs)
         opt   = model.optimal_config()
@@ -112,7 +114,8 @@ class App:
             self._status_var.set("No valid step count — adjust constraints or total dimensions.")
 
         self.results_panel.update(model, n, stringer_count, stair_width,
-                                  tread_board_width)
+                                  tread_board_width, tread_board_label,
+                                  stringer_lumber_ft)
 
     def run(self):
         self.root.mainloop()

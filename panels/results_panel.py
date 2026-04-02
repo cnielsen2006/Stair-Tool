@@ -25,6 +25,8 @@ class ResultsPanel(ttk.Frame):
         self._stringer_count: int = 3
         self._stair_width: float = 36.0
         self._tread_board_width: float = 5.5
+        self._tread_board_label: str = ""
+        self._stringer_lumber_ft: int = 0  # 0 = auto
 
         self._build_ui()
 
@@ -134,11 +136,14 @@ class ResultsPanel(ttk.Frame):
 
     def update(self, model: StairModel, selected_risers: Optional[int],
                stringer_count: int = 3, stair_width: float = 36.0,
-               tread_board_width: float = 5.5):
+               tread_board_width: float = 5.5, tread_board_label: str = "",
+               stringer_lumber_ft: int = 0):
         self._model      = model
         self._stringer_count = stringer_count
         self._stair_width = stair_width
         self._tread_board_width = tread_board_width
+        self._tread_board_label = tread_board_label
+        self._stringer_lumber_ft = stringer_lumber_ft
         self._all_configs = model.compute_configs()
         valid_ns = [c.n_risers for c in self._all_configs if c.is_valid]
 
@@ -440,11 +445,6 @@ class ResultsPanel(ttk.Frame):
         tx, ty = px(total_run, total_rise)
         points += [tx, ty]
         c.create_line(points, fill=STEP_OUTLINE, width=2, joinstyle="miter")
-
-        # Vertical wall line (left side)
-        lx0, ly0 = px(0, 0)
-        lx1, ly1 = px(0, total_rise)
-        c.create_line(lx0, ly0, lx1, ly1, fill=STEP_OUTLINE, width=2)
 
         # Dimension: riser arrow on first riser
         rx, ry_bot = px(0, 0)
@@ -798,6 +798,48 @@ class ResultsPanel(ttk.Frame):
                 c.create_text(scx + r + 2, scy, text=f"S{i}",
                               fill="#884400", font=("Segoe UI", 6), anchor="w")
 
+        # ── Board join markers ────────────────────────────────────────
+        # If the lumber is shorter than the stringer, draw perpendicular
+        # lines across the board at each join location (every lumber_in
+        # along the stringer from the bottom end).
+        lumber_ft_val = self._stringer_lumber_ft
+        if lumber_ft_val == 0:
+            # Auto: pick shortest standard length
+            _std = [8, 10, 12, 14, 16, 18, 20]
+            lumber_ft_val = _std[-1]
+            for _sl in _std:
+                if _sl >= stringer_len_in / 12.0:
+                    lumber_ft_val = _sl
+                    break
+        lumber_in = lumber_ft_val * 12.0
+        if lumber_in > 0 and lumber_in < stringer_len_in:
+            import math as _math
+            JOIN_COLOR = "#DD2200"
+            n_joins = _math.ceil(stringer_len_in / lumber_in) - 1
+            for ji in range(1, n_joins + 1):
+                d_in = ji * lumber_in  # distance along stringer from bottom
+                if d_in >= stringer_len_in:
+                    break
+                # Physical position of the join on the top face
+                frac = d_in / stringer_len_in
+                join_phys_x = frac * total_run
+                join_phys_y = frac * total_rise
+                # Canvas position on top face
+                jt_cx, jt_cy = px(join_phys_x, join_phys_y)
+                # Bottom face: offset perpendicular by -BOARD_W_IN
+                jb_cx = jt_cx + perp(-BOARD_W_IN)[0]
+                jb_cy = jt_cy + perp(-BOARD_W_IN)[1]
+                # Draw the join line across the full board width
+                c.create_line(jt_cx, jt_cy, jb_cx, jb_cy,
+                              fill=JOIN_COLOR, width=2, dash=(6, 3))
+                # Label
+                lbl_cx = jb_cx + perp(-4)[0]
+                lbl_cy = jb_cy + perp(-4)[1]
+                c.create_text(lbl_cx, lbl_cy,
+                              text=f"Join {ji}",
+                              fill=JOIN_COLOR, font=("Segoe UI", 6, "bold"),
+                              anchor="n")
+
         # ── Stair angle arc indicator ──────────────────────────────────
         # Draw a protractor-style arc at the bottom-left corner of the stair
         # from horizontal (0°) up to the stringer angle, with colour coding.
@@ -1022,60 +1064,34 @@ class ResultsPanel(ttk.Frame):
         stair_width = self._stair_width
         board_w = self._tread_board_width
 
-        # How many boards per tread to cover the stair width?
-        boards_per_tread = _math.ceil(stair_width / board_w)
+        # Boards are laid longwise across the stair width; each board
+        # covers board_w of the tread depth.  We need enough boards to
+        # span the full tread depth.
+        boards_per_tread = _math.ceil(cfg.tread_depth / board_w)
         total_tread_boards = boards_per_tread * n_treads
 
-        # Each tread board length = tread depth + nose overhang (~1")
-        # but we just report tread depth as the cut length
-        tread_cut_len = cfg.tread_depth
+        # Each board is cut to the stair width
+        tread_cut_len = stair_width
 
-        # Stringer lumber: next standard length >= stringer_length
+        # Stringer lumber length: user-selected or auto (shortest standard >= stringer)
         sl_ft = cfg.stringer_length / 12.0
         standard_lengths = [8, 10, 12, 14, 16, 18, 20]
-        stringer_lumber_ft = standard_lengths[-1]
-        for slen in standard_lengths:
-            if slen >= sl_ft:
-                stringer_lumber_ft = slen
-                break
+        stringer_lumber_ft = self._stringer_lumber_ft
+        if stringer_lumber_ft == 0:
+            # Auto: pick shortest standard length that fits
+            stringer_lumber_ft = standard_lengths[-1]
+            for slen in standard_lengths:
+                if slen >= sl_ft:
+                    stringer_lumber_ft = slen
+                    break
+        # How many boards per stringer (if lumber is shorter than stringer)
+        lumber_in = stringer_lumber_ft * 12.0
+        boards_per_stringer = _math.ceil(cfg.stringer_length / lumber_in) if lumber_in > 0 else 1
+        total_stringer_boards = stringer_count * boards_per_stringer
 
-        # Position: incircle of the upper-left white-space triangle
-        # bounded by the top stringer face dim line, the left wall,
-        # and the top landing line.
-        # The incenter gives equal whitespace to all 3 edges.
-        if self._model:
-            total_run  = self._model.total_run
-            total_rise = self._model.total_rise
-            margin = CANVAS_MARGIN
-            usable_w = cw - 2 * margin
-            usable_h = ch - 2 * margin
-            scale = min(usable_w / total_run, usable_h / total_rise) if total_run and total_rise else 1
-            ox = margin
-            oy = ch - margin
-            sdim_gap = 24  # must match _redraw_canvas
-
-            # Top-face dim line endpoints (canvas coords)
-            P0cx, P0cy = ox, oy
-            P1cx, P1cy = ox + total_run * scale, oy - total_rise * scale
-            tfd_x0, tfd_y0 = P0cx, P0cy - sdim_gap
-            tfd_x1, tfd_y1 = P1cx, P1cy - sdim_gap
-
-            # Left-wall / top-landing corner
-            left_top_cx = ox
-            left_top_cy = oy - total_rise * scale
-
-            # Incircle of the triangle (equal whitespace to all 3 edges)
-            inc_cx, inc_cy, _ = self._incircle(
-                tfd_x0, tfd_y0,           # A: top-face dim start (lower-left)
-                left_top_cx, left_top_cy,  # B: left-wall/top-landing corner
-                tfd_x1, tfd_y1,           # C: top-face dim end (upper-right)
-            )
-            # Offset so the text block is roughly centered on the incenter
-            box_x = inc_cx - 80
-            box_y = inc_cy - 50
-        else:
-            box_x = CANVAS_MARGIN + 4
-            box_y = CANVAS_MARGIN + 4
+        # Position: fixed upper-left corner of the canvas
+        box_x = 8
+        box_y = 8
         line_h = 18
         hdr_font = ("Segoe UI", 10, "bold")
         body_font = ("Segoe UI", 9)
@@ -1095,24 +1111,35 @@ class ResultsPanel(ttk.Frame):
         c.create_text(box_x, y, text="Stringers:",
                       fill=hdr_color, font=("Segoe UI", 9, "bold"), anchor="nw")
         y += line_h
-        c.create_text(box_x + 8, y,
-                      text=f"{stringer_count}x  2x12 x {stringer_lumber_ft}' ",
-                      fill=body_color, font=body_font, anchor="nw")
-        y += line_h
+        auto_tag = " (auto)" if self._stringer_lumber_ft == 0 else ""
+        if boards_per_stringer == 1:
+            c.create_text(box_x + 8, y,
+                          text=f"{stringer_count}x  2x12 x {stringer_lumber_ft}'{auto_tag}",
+                          fill=body_color, font=body_font, anchor="nw")
+            y += line_h
+        else:
+            c.create_text(box_x + 8, y,
+                          text=f"{total_stringer_boards}x  2x12 x {stringer_lumber_ft}'{auto_tag}",
+                          fill=body_color, font=body_font, anchor="nw")
+            y += line_h
+            c.create_text(box_x + 8, y,
+                          text=f"({boards_per_stringer} boards/stringer x {stringer_count} stringers)",
+                          fill="#777777", font=("Segoe UI", 8), anchor="nw")
+            y += line_h
+            # Warning: lumber shorter than stringer
+            short_color = "#CC7700" if lumber_in >= cfg.stringer_length * 0.5 else INVALID_COLOR
+            c.create_text(box_x + 8, y,
+                          text=f"Joins needed — {stringer_lumber_ft}' < {sl_ft:.1f}' stringer",
+                          fill=short_color, font=("Segoe UI", 8), anchor="nw")
+            y += line_h
 
         # Treads
         c.create_text(box_x, y, text="Treads:",
                       fill=hdr_color, font=("Segoe UI", 9, "bold"), anchor="nw")
         y += line_h
 
-        # Find the board label for current width
-        board_label = f"{board_w}\""
-        from constants import TREAD_BOARD_OPTIONS
-        for lbl, w in TREAD_BOARD_OPTIONS.items():
-            if abs(w - board_w) < 0.01:
-                # Extract just the dimension part e.g. "1x6"
-                board_label = lbl.split(" ")[0]
-                break
+        # Use the selected board label (e.g. "2x6") from the dropdown
+        board_label = self._tread_board_label.split(" ")[0] if self._tread_board_label else f"{board_w}\""
 
         if boards_per_tread == 1:
             c.create_text(box_x + 8, y,
@@ -1128,10 +1155,63 @@ class ResultsPanel(ttk.Frame):
                           fill="#777777", font=("Segoe UI", 8), anchor="nw")
         y += line_h
 
-        # Width coverage note
+        # Depth coverage note — rip last board if it overhangs the tread
         actual_coverage = boards_per_tread * board_w
-        overhang = actual_coverage - stair_width
+        overhang = actual_coverage - cfg.tread_depth
         if overhang > 0.1:
             c.create_text(box_x + 8, y,
                           text=f"Rip last board by {overhang:.2f}\"",
                           fill="#996600", font=("Segoe UI", 8), anchor="nw")
+            y += line_h
+
+        # --- Interior stringer notch cuts ---
+        # The 2 outer stringers are uncut; interior stringers get notched.
+        n_cut = max(0, stringer_count - 2)
+        if n_cut > 0 and self._model:
+            total_run  = self._model.total_run
+            total_rise = self._model.total_rise
+            angle = _math.atan2(total_rise, total_run)
+            cos_a = _math.cos(angle)
+
+            riser = cfg.riser_height
+            tread_d = cfg.tread_depth
+
+            # Notch depth perpendicular to board face = riser × cos(θ)
+            BOARD_W_IN = 11.25  # actual 2×12 width
+            notch_depth = riser * cos_a
+            throat = BOARD_W_IN - notch_depth
+
+            y += 4
+            c.create_line(box_x, y - 2, box_x + 180, y - 2,
+                          fill="#AAAAAA", width=1)
+
+            cut_label = "Stringer Cuts" if n_cut > 1 else "Stringer Cut"
+            cut_note = f"({n_cut} interior)" if n_cut > 1 else "(1 interior)"
+            c.create_text(box_x, y, text=f"{cut_label} {cut_note}:",
+                          fill=hdr_color, font=("Segoe UI", 9, "bold"), anchor="nw")
+            y += line_h
+            c.create_text(box_x + 8, y,
+                          text=f"Tread seat (level): {tread_d:.3f}\"",
+                          fill=body_color, font=body_font, anchor="nw")
+            y += line_h
+            c.create_text(box_x + 8, y,
+                          text=f"Riser seat (plumb): {riser:.3f}\"",
+                          fill=body_color, font=body_font, anchor="nw")
+            y += line_h
+            c.create_text(box_x + 8, y,
+                          text=f"Notch depth: {notch_depth:.3f}\"",
+                          fill=body_color, font=body_font, anchor="nw")
+            y += line_h
+
+            # Throat depth with warning if below IBC minimum (3.5")
+            throat_color = body_color
+            throat_extra = ""
+            if throat < 3.5:
+                throat_color = INVALID_COLOR
+                throat_extra = "  < 3.5\" min!"
+            elif throat < 4.0:
+                throat_color = "#CC7700"
+                throat_extra = "  (marginal)"
+            c.create_text(box_x + 8, y,
+                          text=f"Throat: {throat:.3f}\"{throat_extra}",
+                          fill=throat_color, font=body_font, anchor="nw")
