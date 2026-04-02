@@ -30,6 +30,8 @@ INVALID_COLOR = "#CC0000"
 DEFAULT_STRINGER_COUNT = 3       # typical residential: 3 stringers
 DEFAULT_STAIR_WIDTH    = 36.0    # inches (IBC min 36")
 DEFAULT_TREAD_BOARD_WIDTH = 5.5  # nominal 1×6 actual width (inches)
+DEFAULT_TREAD_BOARD_GAP = 0.25   # gap between tread boards (inches)
+DEFAULT_NOSING_OVERHANG = 0.75   # acceptable nosing overhang past last board (inches)
 DEFAULT_STRINGER_LUMBER_FT = 0   # 0 = auto (pick shortest standard length)
 
 # Standard dimensional lumber lengths (feet)

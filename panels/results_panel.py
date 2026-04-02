@@ -15,9 +15,8 @@ from models import StairModel, StepConfig
 class ResultsPanel(ttk.Frame):
     """Right panel: stair diagram canvas + computed results summary."""
 
-    def __init__(self, parent, on_risers_change=None, **kwargs):
+    def __init__(self, parent, **kwargs):
         super().__init__(parent, **kwargs)
-        self._on_risers_change = on_risers_change
         self._model: Optional[StairModel] = None
         self._selected_risers: Optional[int]   = None
         self._all_configs = []
@@ -26,7 +25,10 @@ class ResultsPanel(ttk.Frame):
         self._stair_width: float = 36.0
         self._tread_board_width: float = 5.5
         self._tread_board_label: str = ""
+        self._tread_board_gap: float = 0.25
+        self._nosing_overhang: float = 0.75
         self._stringer_lumber_ft: int = 0  # 0 = auto
+        self._steps_range = (2, 50, [])  # (n_lo, n_hi, valid_ns)
 
         self._build_ui()
 
@@ -50,21 +52,6 @@ class ResultsPanel(ttk.Frame):
         # Summary area
         summary_frame = ttk.LabelFrame(self, text="Results", padding=8)
         summary_frame.pack(fill="x", padx=4, pady=(0, 4))
-
-        # N selector row
-        sel_row = ttk.Frame(summary_frame)
-        sel_row.pack(fill="x", pady=(0, 6))
-        ttk.Label(sel_row, text="Steps (including landing):").pack(side="left")
-        self._steps_var = tk.StringVar()
-        self._steps_spinbox = ttk.Spinbox(
-            sel_row, textvariable=self._steps_var, width=6,
-            command=self._on_steps_spinbox,
-        )
-        self._steps_spinbox.pack(side="left", padx=(4, 0))
-        self._steps_spinbox.bind("<Return>",   self._on_steps_spinbox)
-        self._steps_spinbox.bind("<FocusOut>", self._on_steps_spinbox)
-        self._valid_range_label = ttk.Label(sel_row, text="", foreground="#555555")
-        self._valid_range_label.pack(side="left", padx=(8, 0))
 
         # Stats grid — row 0: step dims + validity
         stats = ttk.Frame(summary_frame)
@@ -114,21 +101,13 @@ class ResultsPanel(ttk.Frame):
             if key == "angle_rating":
                 self._angle_rating_label = val_lbl
 
-        # Comfort gauge
-        gauge_frame = ttk.Frame(summary_frame)
-        gauge_frame.pack(fill="x", pady=(6, 2))
-        ttk.Label(gauge_frame, text="Comfort:", font=("Segoe UI", 8, "bold")).pack(side="left")
-        self._comfort_label = ttk.Label(gauge_frame, text="", font=("Segoe UI", 8))
-        self._comfort_label.pack(side="right")
-
-        self._gauge_canvas = tk.Canvas(summary_frame, height=18, bd=0,
+        # Comfort gauge — compact bar on row 2, columns 4-7 (beside angle info)
+        self._gauge_canvas = tk.Canvas(stats, height=10, bd=0,
                                        highlightthickness=0, background="#EEEEEE")
-        self._gauge_canvas.pack(fill="x", pady=(0, 4))
+        self._gauge_canvas.grid(row=2, column=4, columnspan=4, sticky="ew", padx=(8, 0), pady=(4, 0))
         self._gauge_canvas.bind("<Configure>", self._redraw_gauge)
 
-        self._status_label = ttk.Label(
-            summary_frame, text="", font=("Segoe UI", 9, "bold"))
-        self._status_label.pack(anchor="w", pady=(4, 0))
+        self._status_label = None  # removed
 
     # ------------------------------------------------------------------
     # Public API
@@ -137,61 +116,44 @@ class ResultsPanel(ttk.Frame):
     def update(self, model: StairModel, selected_risers: Optional[int],
                stringer_count: int = 3, stair_width: float = 36.0,
                tread_board_width: float = 5.5, tread_board_label: str = "",
+               tread_board_gap: float = 0.25, nosing_overhang: float = 0.75,
                stringer_lumber_ft: int = 0):
         self._model      = model
         self._stringer_count = stringer_count
         self._stair_width = stair_width
         self._tread_board_width = tread_board_width
         self._tread_board_label = tread_board_label
+        self._tread_board_gap = tread_board_gap
+        self._nosing_overhang = nosing_overhang
         self._stringer_lumber_ft = stringer_lumber_ft
         self._all_configs = model.compute_configs()
         valid_ns = [c.n_risers for c in self._all_configs if c.is_valid]
 
-        # Configure spinbox to span the full search range (valid + nearby invalid)
-        # Always include selected_risers in the range so a user-entered value isn't clamped
-        # Spinbox shows steps (treads = risers - 1); internally we track risers.
+        # Determine valid range for the spinbox (managed by input_panel now)
         all_ns = [c.n_risers for c in self._all_configs]
         n_lo = min(all_ns) if all_ns else 2
         n_hi = max(all_ns) if all_ns else 50
         if selected_risers is not None:
             n_lo = min(n_lo, selected_risers)
             n_hi = max(n_hi, selected_risers)
-        self._steps_spinbox.config(from_=n_lo - 1, to=n_hi - 1)
-        if valid_ns:
-            lo, hi = min(valid_ns), max(valid_ns)
-            rng_text = f"valid: {lo - 1}" if lo == hi else f"valid: {lo - 1}–{hi - 1}"
-            self._valid_range_label.config(text=rng_text, foreground="#555555")
-        else:
-            self._valid_range_label.config(text="no valid solution", foreground=INVALID_COLOR)
 
-        # Set selected N (risers) — always honor an explicitly provided value
+        # Resolve selected N (risers)
         if selected_risers is not None:
             self._selected_risers = selected_risers
         elif valid_ns:
             opt = model.optimal_config()
             self._selected_risers = opt.n_risers if opt else valid_ns[0]
         else:
-            # fallback: show closest possible
             self._selected_risers = self._all_configs[len(self._all_configs)//2].n_risers \
                 if self._all_configs else 2
 
-        self._steps_var.set(str(self._selected_risers - 1))
+        # Return range info so the caller can update the input panel spinbox
+        self._steps_range = (n_lo, n_hi, valid_ns)
         self._refresh()
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-
-    def _on_steps_spinbox(self, _=None):
-        try:
-            steps = int(self._steps_var.get())
-        except ValueError:
-            return
-        n = steps + 1  # convert steps (treads) to risers
-        self._selected_risers = n
-        self._refresh()
-        if self._on_risers_change:
-            self._on_risers_change(n)
 
     def _on_canvas_resize(self, _=None):
         if self._model and self._selected_risers:
@@ -231,7 +193,6 @@ class ResultsPanel(ttk.Frame):
         if cfg is None:
             for var in self._stat_vars.values():
                 var.set("—")
-            self._status_label.config(text="No data", foreground=INVALID_COLOR)
             self._current_rot = None
             self._redraw_gauge()
             return
@@ -241,7 +202,18 @@ class ResultsPanel(ttk.Frame):
         self._stat_vars["tread"].set(f"{cfg.tread_depth:.3f}\"")
         rot = cfg.rule_of_thumb
         self._current_rot = rot
-        self._stat_vars["rot"].set(f"{rot:.2f}\" (ideal 24–25)")
+        # Include comfort rating inline with the 2R+T value
+        if COMFORT_IDEAL_LO <= rot <= COMFORT_IDEAL_HI:
+            comfort = "Ideal"
+        elif COMFORT_WARN_LO <= rot < COMFORT_IDEAL_LO:
+            comfort = "Slightly steep"
+        elif COMFORT_IDEAL_HI < rot <= COMFORT_WARN_HI:
+            comfort = "Slightly shallow"
+        elif rot < COMFORT_WARN_LO:
+            comfort = "Too steep"
+        else:
+            comfort = "Too shallow"
+        self._stat_vars["rot"].set(f"{rot:.2f}\" — {comfort}")
         self._redraw_gauge()
 
         # Angle info
@@ -276,31 +248,9 @@ class ResultsPanel(ttk.Frame):
         if cfg.is_valid:
             opt = self._model.optimal_config() if self._model else None
             is_opt = opt and opt.n_risers == cfg.n_risers
-            if is_opt:
-                self._stat_vars["status"].set("Optimal")
-                self._status_label.config(
-                    text=f"{cfg.n_risers - 1} steps ({cfg.n_risers} risers) — Optimal",
-                    foreground=OPTIMAL_COLOR)
-            else:
-                self._stat_vars["status"].set("Valid")
-                self._status_label.config(
-                    text=f"{cfg.n_risers - 1} steps ({cfg.n_risers} risers) — Valid (not optimal)",
-                    foreground="#005599")
+            self._stat_vars["status"].set("Optimal" if is_opt else "Valid")
         else:
             self._stat_vars["status"].set("Out of range")
-            reasons = []
-            if self._model:
-                if not (self._model.min_rise <= cfg.riser_height <= self._model.max_rise):
-                    reasons.append(
-                        f"riser {cfg.riser_height:.2f}\" outside "
-                        f"[{self._model.min_rise}\"–{self._model.max_rise}\"]")
-                if not (self._model.min_tread <= cfg.tread_depth <= self._model.max_tread):
-                    reasons.append(
-                        f"tread {cfg.tread_depth:.2f}\" outside "
-                        f"[{self._model.min_tread}\"–{self._model.max_tread}\"]")
-            self._status_label.config(
-                text="Out of range: " + "; ".join(reasons) if reasons else "Out of range",
-                foreground=INVALID_COLOR)
 
     # ------------------------------------------------------------------
     # Comfort gauge
@@ -309,26 +259,23 @@ class ResultsPanel(ttk.Frame):
     def _redraw_gauge(self, _=None):
         gc = self._gauge_canvas
         gc.delete("all")
-        gw = gc.winfo_width() or 400
-        gh = gc.winfo_height() or 18
+        gw = gc.winfo_width() or 200
+        gh = gc.winfo_height() or 10
 
         rot = self._current_rot
 
-        # Background gradient zones (too steep | warn | ideal | warn | too shallow)
-        # Map COMFORT_WARN_LO..COMFORT_WARN_HI onto the full gauge width
-        full_lo  = COMFORT_WARN_LO - 2   # 20"  — extreme steep
-        full_hi  = COMFORT_WARN_HI + 2   # 29"  — extreme shallow
+        full_lo = COMFORT_WARN_LO - 2
+        full_hi = COMFORT_WARN_HI + 2
 
         def rot_to_x(v):
             return max(0, min(gw, (v - full_lo) / (full_hi - full_lo) * gw))
 
-        # Zone colors: red → orange → green → orange → red
         zones = [
-            (full_lo,          COMFORT_WARN_LO,  "#E05050"),  # too steep
-            (COMFORT_WARN_LO,  COMFORT_IDEAL_LO, "#E0A020"),  # borderline steep
-            (COMFORT_IDEAL_LO, COMFORT_IDEAL_HI, "#40AA40"),  # ideal
-            (COMFORT_IDEAL_HI, COMFORT_WARN_HI,  "#E0A020"),  # borderline shallow
-            (COMFORT_WARN_HI,  full_hi,           "#E05050"),  # too shallow
+            (full_lo,          COMFORT_WARN_LO,  "#E05050"),
+            (COMFORT_WARN_LO,  COMFORT_IDEAL_LO, "#E0A020"),
+            (COMFORT_IDEAL_LO, COMFORT_IDEAL_HI, "#40AA40"),
+            (COMFORT_IDEAL_HI, COMFORT_WARN_HI,  "#E0A020"),
+            (COMFORT_WARN_HI,  full_hi,           "#E05050"),
         ]
         for z_lo, z_hi, color in zones:
             x0 = rot_to_x(z_lo)
@@ -336,43 +283,20 @@ class ResultsPanel(ttk.Frame):
             if x1 > x0:
                 gc.create_rectangle(x0, 0, x1, gh, fill=color, outline="")
 
-        # Zone boundary tick marks
+        # Zone boundary ticks
         for v in (COMFORT_WARN_LO, COMFORT_IDEAL_LO, COMFORT_IDEAL_HI, COMFORT_WARN_HI):
             x = rot_to_x(v)
             gc.create_line(x, 0, x, gh, fill="#FFFFFF", width=1)
-            gc.create_text(x, gh - 1, text=f"{v:.0f}\"", fill="#FFFFFF",
-                           font=("Segoe UI", 6), anchor="s")
-
-        # Labels at edges
-        gc.create_text(2, gh // 2, text="Steep", fill="#FFFFFF",
-                       font=("Segoe UI", 6), anchor="w")
-        gc.create_text(gw - 2, gh // 2, text="Shallow", fill="#FFFFFF",
-                       font=("Segoe UI", 6), anchor="e")
 
         if rot is None:
-            self._comfort_label.config(text="—", foreground="#555555")
             return
 
         # Indicator needle
         needle_x = rot_to_x(rot)
-        gc.create_line(needle_x, 0, needle_x, gh, fill="#000000", width=3)
+        gc.create_line(needle_x, 0, needle_x, gh, fill="#000000", width=2)
         gc.create_polygon(
-            needle_x - 5, 0, needle_x + 5, 0, needle_x, 7,
+            needle_x - 3, 0, needle_x + 3, 0, needle_x, 4,
             fill="#000000", outline="")
-
-        # Comfort label text
-        if COMFORT_IDEAL_LO <= rot <= COMFORT_IDEAL_HI:
-            label, color = "Ideal", OPTIMAL_COLOR
-        elif COMFORT_WARN_LO <= rot < COMFORT_IDEAL_LO:
-            label, color = "Slightly steep", "#CC7700"
-        elif COMFORT_IDEAL_HI < rot <= COMFORT_WARN_HI:
-            label, color = "Slightly shallow", "#CC7700"
-        elif rot < COMFORT_WARN_LO:
-            label, color = "Too steep", INVALID_COLOR
-        else:
-            label, color = "Too shallow", INVALID_COLOR
-
-        self._comfort_label.config(text=f"2R+T = {rot:.2f}\"  —  {label}", foreground=color)
 
     # ------------------------------------------------------------------
     # Canvas drawing
@@ -1131,11 +1055,18 @@ class ResultsPanel(ttk.Frame):
         stringer_count = self._stringer_count
         stair_width = self._stair_width
         board_w = self._tread_board_width
+        gap = self._tread_board_gap
+        nosing = self._nosing_overhang
 
         # Boards are laid longwise across the stair width; each board
-        # covers board_w of the tread depth.  We need enough boards to
-        # span the full tread depth.
-        boards_per_tread = _math.ceil(cfg.tread_depth / board_w)
+        # covers board_w of the tread depth, with gaps between boards.
+        # The nosing overhang means we don't need to fully cover the
+        # tread depth — the front nosing extends past the riser below.
+        # Effective depth to cover: tread_depth - nosing_overhang
+        # n boards with (n-1) gaps: n * board_w + (n-1) * gap >= effective_depth
+        # Solving: n >= (effective_depth + gap) / (board_w + gap)
+        effective_depth = max(board_w, cfg.tread_depth - nosing)
+        boards_per_tread = _math.ceil((effective_depth + gap) / (board_w + gap))
         total_tread_boards = boards_per_tread * n_treads
 
         # Each board is cut to the stair width
@@ -1224,7 +1155,7 @@ class ResultsPanel(ttk.Frame):
         y += line_h
 
         # Depth coverage note — rip last board if it overhangs the tread
-        actual_coverage = boards_per_tread * board_w
+        actual_coverage = boards_per_tread * board_w + (boards_per_tread - 1) * gap
         overhang = actual_coverage - cfg.tread_depth
         if overhang > 0.1:
             c.create_text(box_x + 8, y,

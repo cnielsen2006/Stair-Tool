@@ -62,8 +62,7 @@ class App:
             on_constraint_change=self._on_constraints_changed, initial=saved)
         self.input_panel.grid(row=0, column=0, sticky="nsew", padx=(8, 4), pady=8)
 
-        self.results_panel = ResultsPanel(
-            self.root, on_risers_change=self._on_risers_changed)
+        self.results_panel = ResultsPanel(self.root)
         self.results_panel.grid(row=0, column=1, sticky="nsew", padx=(4, 8), pady=8)
 
         # Status bar
@@ -84,10 +83,6 @@ class App:
         # Constraints changed — preserve the user's selected N, just recalculate
         self._recalculate()
 
-    def _on_risers_changed(self, n: int):
-        self._selected_risers = n
-        # No need to full recalculate — results_panel already redraws internally
-
     def _recalculate(self):
         inputs = self.input_panel.get_inputs()
         # Separate construction params from model params
@@ -95,27 +90,43 @@ class App:
         stair_width = inputs.pop("stair_width", 36.0)
         tread_board_width = inputs.pop("tread_board_width", 5.5)
         tread_board_label = inputs.pop("tread_board_label", "")
+        tread_board_gap = inputs.pop("tread_board_gap", 0.25)
+        nosing_overhang = inputs.pop("nosing_overhang", 0.75)
         stringer_lumber_ft = inputs.pop("stringer_lumber_ft", 0)
+
+        # Read step count from input panel spinbox (may be None on first run)
+        spinbox_risers = self.input_panel.get_selected_steps()
+        n = spinbox_risers or self._selected_risers
 
         model = StairModel(**inputs)
         opt   = model.optimal_config()
 
         if opt:
-            n = self._selected_risers if self._selected_risers else opt.n_risers
+            if not n:
+                n = opt.n_risers
             self._status_var.set(
                 f"Optimal: {opt.n_risers - 1} steps ({opt.n_risers} risers)  |  "
                 f"Rise {opt.riser_height:.3f}\"  Tread {opt.tread_depth:.3f}\"  "
                 f"2R+T={opt.rule_of_thumb:.2f}\""
             )
         else:
-            n_lo, n_hi = model.valid_n_range()
-            n = self._selected_risers if self._selected_risers else (
-                (n_lo + n_hi) // 2 if n_lo else 2)
+            if not n:
+                n_lo, n_hi = model.valid_n_range()
+                n = (n_lo + n_hi) // 2 if n_lo else 2
             self._status_var.set("No valid step count — adjust constraints or total dimensions.")
 
         self.results_panel.update(model, n, stringer_count, stair_width,
                                   tread_board_width, tread_board_label,
+                                  tread_board_gap, nosing_overhang,
                                   stringer_lumber_ft)
+
+        # Push resolved range info back to the input panel spinbox
+        self._selected_risers = self.results_panel._selected_risers
+        n_lo, n_hi, valid_ns = self.results_panel._steps_range
+        valid_lo = min(valid_ns) if valid_ns else None
+        valid_hi = max(valid_ns) if valid_ns else None
+        self.input_panel.set_steps_range(n_lo, n_hi, valid_lo, valid_hi,
+                                         self._selected_risers)
 
     def run(self):
         self.root.mainloop()

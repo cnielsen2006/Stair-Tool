@@ -8,6 +8,7 @@ from constants import (
     RUN_MIN_IN,  RUN_MAX_IN,
     DEFAULT_STRINGER_COUNT, DEFAULT_STAIR_WIDTH,
     DEFAULT_TREAD_BOARD_WIDTH, TREAD_BOARD_OPTIONS,
+    DEFAULT_TREAD_BOARD_GAP, DEFAULT_NOSING_OVERHANG,
     DEFAULT_STRINGER_LUMBER_FT, STRINGER_LUMBER_OPTIONS,
 )
 from widgets.labeled_slider import LabeledSlider
@@ -23,6 +24,8 @@ _DEFAULTS = {
     "stringer_count":   DEFAULT_STRINGER_COUNT,
     "stair_width":      DEFAULT_STAIR_WIDTH,
     "tread_board_width": DEFAULT_TREAD_BOARD_WIDTH,
+    "tread_board_gap":  DEFAULT_TREAD_BOARD_GAP,
+    "nosing_overhang":  DEFAULT_NOSING_OVERHANG,
     "stringer_lumber_ft": DEFAULT_STRINGER_LUMBER_FT,
 }
 
@@ -76,6 +79,22 @@ class InputPanel(ttk.LabelFrame):
             command=self._constraint_changed,
         )
         self.tread_constraints.pack(fill="x", pady=(4, 0))
+
+        # Step count selector
+        step_row = ttk.Frame(self)
+        step_row.pack(fill="x", pady=(6, 0))
+        ttk.Label(step_row, text="Steps (incl. landing):",
+                  font=("Segoe UI", 9, "bold")).pack(side="left")
+        self._steps_var = tk.StringVar()
+        self._steps_spinbox = ttk.Spinbox(
+            step_row, textvariable=self._steps_var, width=6,
+            command=self._on_steps_spinbox,
+        )
+        self._steps_spinbox.pack(side="left", padx=(4, 0))
+        self._steps_spinbox.bind("<Return>",   self._on_steps_spinbox)
+        self._steps_spinbox.bind("<FocusOut>", self._on_steps_spinbox)
+        self._valid_range_label = ttk.Label(step_row, text="", foreground="#555555")
+        self._valid_range_label.pack(side="left", padx=(8, 0))
 
         # --- Construction details ---
         ttk.Separator(self, orient="horizontal").pack(fill="x", pady=(12, 6))
@@ -131,9 +150,35 @@ class InputPanel(ttk.LabelFrame):
         self._tread_board_combo.grid(row=2, column=1, sticky="w", padx=(4, 0), pady=(2, 0))
         self._tread_board_combo.bind("<<ComboboxSelected>>", lambda _: self._changed())
 
+        # Tread board gap
+        ttk.Label(cons_frame, text="Board Gap:", font=("Segoe UI", 9, "bold")).grid(
+            row=3, column=0, sticky="w", pady=(2, 0))
+        gap_frame = ttk.Frame(cons_frame)
+        gap_frame.grid(row=3, column=1, sticky="w", padx=(4, 0), pady=(2, 0))
+        self._tread_gap_var = tk.StringVar(value=f"{iv['tread_board_gap']:.2f}")
+        self._tread_gap_entry = ttk.Entry(
+            gap_frame, textvariable=self._tread_gap_var, width=6, justify="right")
+        self._tread_gap_entry.pack(side="left")
+        ttk.Label(gap_frame, text="in", foreground="#555555").pack(side="left", padx=(2, 0))
+        self._tread_gap_entry.bind("<Return>", lambda _: self._changed())
+        self._tread_gap_entry.bind("<FocusOut>", lambda _: self._changed())
+
+        # Nosing overhang tolerance
+        ttk.Label(cons_frame, text="Nosing Overhang:", font=("Segoe UI", 9, "bold")).grid(
+            row=4, column=0, sticky="w", pady=(2, 0))
+        nosing_frame = ttk.Frame(cons_frame)
+        nosing_frame.grid(row=4, column=1, sticky="w", padx=(4, 0), pady=(2, 0))
+        self._nosing_var = tk.StringVar(value=f"{iv['nosing_overhang']:.2f}")
+        self._nosing_entry = ttk.Entry(
+            nosing_frame, textvariable=self._nosing_var, width=6, justify="right")
+        self._nosing_entry.pack(side="left")
+        ttk.Label(nosing_frame, text="in", foreground="#555555").pack(side="left", padx=(2, 0))
+        self._nosing_entry.bind("<Return>", lambda _: self._changed())
+        self._nosing_entry.bind("<FocusOut>", lambda _: self._changed())
+
         # Stringer lumber length
         ttk.Label(cons_frame, text="Stringer Lumber:", font=("Segoe UI", 9, "bold")).grid(
-            row=3, column=0, sticky="w", pady=(2, 0))
+            row=5, column=0, sticky="w", pady=(2, 0))
         lumber_labels = ["Auto"] + [f"{ft}'" for ft in STRINGER_LUMBER_OPTIONS if ft > 0]
         saved_lumber = iv["stringer_lumber_ft"]
         if saved_lumber == 0:
@@ -146,7 +191,7 @@ class InputPanel(ttk.LabelFrame):
         self._stringer_lumber_combo = ttk.Combobox(
             cons_frame, textvariable=self._stringer_lumber_var,
             values=lumber_labels, state="readonly", width=14)
-        self._stringer_lumber_combo.grid(row=3, column=1, sticky="w", padx=(4, 0), pady=(2, 0))
+        self._stringer_lumber_combo.grid(row=5, column=1, sticky="w", padx=(4, 0), pady=(2, 0))
         self._stringer_lumber_combo.bind("<<ComboboxSelected>>", lambda _: self._changed())
 
         # --- Reset button ---
@@ -164,6 +209,31 @@ class InputPanel(ttk.LabelFrame):
         elif self._on_change:
             self._on_change()
 
+    def _on_steps_spinbox(self, _=None):
+        if self._on_change:
+            self._on_change()
+
+    def get_selected_steps(self) -> int | None:
+        """Return the spinbox value as risers (steps + 1), or None."""
+        try:
+            return int(self._steps_var.get()) + 1
+        except ValueError:
+            return None
+
+    def set_steps_range(self, n_lo: int, n_hi: int, valid_lo: int | None,
+                        valid_hi: int | None, selected_risers: int):
+        """Update the step-count spinbox range, valid-range label, and value."""
+        self._steps_spinbox.config(from_=n_lo - 1, to=n_hi - 1)
+        if valid_lo is not None:
+            if valid_lo == valid_hi:
+                rng_text = f"valid: {valid_lo - 1}"
+            else:
+                rng_text = f"valid: {valid_lo - 1}\u2013{valid_hi - 1}"
+            self._valid_range_label.config(text=rng_text, foreground="#555555")
+        else:
+            self._valid_range_label.config(text="no valid solution", foreground="#CC3333")
+        self._steps_var.set(str(selected_risers - 1))
+
     def _reset_defaults(self):
         self.rise_constraints.set_values(DEFAULT_MIN_RISE, DEFAULT_MAX_RISE)
         self.tread_constraints.set_values(DEFAULT_MIN_TREAD, DEFAULT_MAX_TREAD)
@@ -180,6 +250,18 @@ class InputPanel(ttk.LabelFrame):
             stair_width = DEFAULT_STAIR_WIDTH
         board_label = self._tread_board_var.get()
         tread_board_width = TREAD_BOARD_OPTIONS.get(board_label, DEFAULT_TREAD_BOARD_WIDTH)
+        try:
+            tread_board_gap = float(self._tread_gap_var.get())
+            if tread_board_gap < 0:
+                tread_board_gap = 0.0
+        except ValueError:
+            tread_board_gap = DEFAULT_TREAD_BOARD_GAP
+        try:
+            nosing_overhang = float(self._nosing_var.get())
+            if nosing_overhang < 0:
+                nosing_overhang = 0.0
+        except ValueError:
+            nosing_overhang = DEFAULT_NOSING_OVERHANG
         lumber_sel = self._stringer_lumber_var.get()
         if lumber_sel == "Auto":
             stringer_lumber_ft = 0
@@ -199,5 +281,7 @@ class InputPanel(ttk.LabelFrame):
             "stair_width":      stair_width,
             "tread_board_width": tread_board_width,
             "tread_board_label": board_label,
+            "tread_board_gap": tread_board_gap,
+            "nosing_overhang": nosing_overhang,
             "stringer_lumber_ft": stringer_lumber_ft,
         }

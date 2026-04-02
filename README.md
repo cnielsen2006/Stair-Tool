@@ -12,7 +12,7 @@ A desktop stair calculator built with Python and tkinter that computes optimal s
   - Mouse-wheel scrolling on sliders; **Shift+scroll for fine-tuning** (5× slower)
 - **Per-step constraint controls** — adjustable min/max riser height and tread depth (IBC/IRC defaults pre-loaded)
 - **Optimal step count selection** — scores all valid N values by closeness to ideal rise (7") and tread (11")
-- **Manual N override** — spinbox lets you pick any step count (including landing); constraints never override your choice
+- **Step count selector** — spinbox in the left panel lets you pick any step count (including landing); constraints never override your choice
 - **Construction details** — stringer count, stair width, and tread lumber board size inputs
 - **Live stair diagram** — scaled canvas drawing with:
   - Step profile and filled rectangles
@@ -23,8 +23,7 @@ A desktop stair calculator built with Python and tkinter that computes optimal s
   - Intermediate support markers when stringer span exceeds 8 ft
   - **Materials list** — positioned via incircle of the upper-left whitespace triangle for balanced placement
   - **Step detail inset** — zoomed single-step view inscribed in the lower-right whitespace triangle (incircle positioning)
-- **Comfort gauge** — color-coded 2R+T bar (ideal 24"–25")
-- **Results summary** — riser, tread, 2R+T, stringer length/angle, support count/spacing
+- **Results summary** — riser, tread, 2R+T (with comfort rating), stringer length/angle, support count/spacing, inline comfort gauge bar
 - **Board join markers** — when selected lumber is shorter than the stringer, perpendicular join lines and per-segment dimension callouts are drawn along the stringer
 - **Single-instance enforcement** — only one window can run at a time; re-launching brings the existing window to front
 - **Settings persistence** — all inputs (dimensions, constraints, construction details) saved and restored on next launch
@@ -78,8 +77,8 @@ Stair-Tool/
 ├── models.py                # StairModel + StepConfig (pure logic)
 ├── constants.py             # IBC/IRC defaults, canvas sizes, colors
 ├── panels/
-│   ├── input_panel.py       # Left panel: sliders + constraint fields
-│   └── results_panel.py     # Right panel: canvas diagram + summary
+│   ├── input_panel.py       # Left panel: sliders + constraints + step count + construction inputs
+│   └── results_panel.py     # Right panel: canvas diagram + results summary
 ├── widgets/
 │   ├── labeled_slider.py    # LabeledSlider: Scale + Entry two-way binding
 │   └── constraint_row.py    # ConstraintRow: min/max entry pair
