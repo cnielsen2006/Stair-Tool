@@ -337,7 +337,7 @@ class ResultsPanel(ttk.Frame):
         if n > 1:
             tx_left, ty_h = px(0, riser)
             tx_right, _   = px(tread, riser)
-            arm_y = ty_h + 18
+            arm_y = ty_h + 30
             c.create_line(tx_left, arm_y, tx_right, arm_y,
                           arrow=tk.BOTH, fill=LABEL_COLOR, width=1)
             c.create_text((tx_left + tx_right) / 2, arm_y + 10,
@@ -505,8 +505,7 @@ class ResultsPanel(ttk.Frame):
 
         str_col = "#7A5533"
         sdim_gap = 24   # pixels gap between face and dimension line
-
-        # --- Side 1: top face P0→P1 (offset straight up in canvas) ---
+        # --- Side 1: top face P0→P1 ---
         top_face_dx = total_run - P0_phys[0]
         top_face_dy = stringer_top_y - P0_phys[1]
         top_face_len = _math.sqrt(top_face_dx**2 + top_face_dy**2)
@@ -527,8 +526,22 @@ class ResultsPanel(ttk.Frame):
             _p0_offset = 0.0
         self._effective_stringer_len = stringer_len_in  # for materials list
         sl_ft = stringer_len_in / 12.0
-        tfd_x0, tfd_y0 = P0cx, P0cy - sdim_gap
-        tfd_x1, tfd_y1 = P1cx, P1cy - sdim_gap
+        # Dimension line at original axis-aligned position (straight up)
+        tfd_y0 = P0cy - sdim_gap
+        tfd_y1 = P1cy - sdim_gap
+        # Extension lines go perpendicular to the top face from each vertex
+        # to meet the horizontal dim-line position.
+        # Perpendicular (90° CCW from face direction in canvas coords):
+        _face_dx = P1cx - P0cx   # positive (right)
+        _face_dy = P1cy - P0cy   # negative (up in canvas)
+        _perp_x = _face_dy       # CCW 90°: (dy, -dx)
+        _perp_y = -_face_dx
+        # Extension from P0: travel along perp until y = P0cy - sdim_gap
+        _t0 = -sdim_gap / _perp_y
+        tfd_x0 = P0cx + _t0 * _perp_x
+        # Extension from P1: travel along perp until y = P1cy - sdim_gap
+        _t1 = -sdim_gap / _perp_y
+        tfd_x1 = P1cx + _t1 * _perp_x
         c.create_line(P0cx, P0cy, tfd_x0, tfd_y0, fill=str_col, width=1)
         c.create_line(P1cx, P1cy, tfd_x1, tfd_y1, fill=str_col, width=1)
         c.create_line(tfd_x0, tfd_y0, tfd_x1, tfd_y1, arrow=tk.BOTH, fill=str_col, width=1)
@@ -537,7 +550,7 @@ class ResultsPanel(ttk.Frame):
                       text=f"Top face: {top_face_len:.2f}\" ({sl_ft:.2f} ft)",
                       fill=str_col, font=("Segoe UI", 7), anchor="s")
 
-        # --- Side 2: top plumb cut P1→P2 (to the right of the cut) ---
+        # --- Side 2: top plumb cut P1→P2 (perpendicular = horizontal) ---
         tp_off = 14  # pixels to the right in canvas x
         tpc_x0, tpc_y0 = P1cx + tp_off, P1cy
         tpc_x1, tpc_y1 = P2cx + tp_off, P2cy
@@ -548,14 +561,25 @@ class ResultsPanel(ttk.Frame):
                       text=f"{BW_div_cos:.2f}\"", fill=str_col,
                       font=("Segoe UI", 7), anchor="w")
 
-        # --- Side 3: bottom face P2→P3 (offset straight down in canvas) ---
+        # --- Side 3: bottom face P2→P3 ---
         import math as _m3
         bot_face_dx = total_run - P3_phys[0]
         bot_face_dy = (stringer_top_y - BW_div_cos) - P3_phys[1]
         bot_face_in = _m3.sqrt(bot_face_dx**2 + bot_face_dy**2)
         bot_face_ft = bot_face_in / 12.0
-        bfd_x0, bfd_y0 = P3cx, P3cy + sdim_gap
-        bfd_x1, bfd_y1 = P2cx, P2cy + sdim_gap
+        # Dimension line at original axis-aligned position (straight down)
+        bfd_y0 = P3cy + sdim_gap
+        bfd_y1 = P2cy + sdim_gap
+        # Extension lines perpendicular to bottom face (90° CW = below face)
+        # CW 90° from face direction: (-dy, dx)
+        _bperp_x = -_face_dy     # CW 90°: (-dy, dx)
+        _bperp_y =  _face_dx
+        # Extension from P3: travel along perp until y = P3cy + sdim_gap
+        _bt0 = sdim_gap / _bperp_y
+        bfd_x0 = P3cx + _bt0 * _bperp_x
+        # Extension from P2: travel along perp until y = P2cy + sdim_gap
+        _bt1 = sdim_gap / _bperp_y
+        bfd_x1 = P2cx + _bt1 * _bperp_x
         c.create_line(P3cx, P3cy, bfd_x0, bfd_y0, fill=str_col, width=1)
         c.create_line(P2cx, P2cy, bfd_x1, bfd_y1, fill=str_col, width=1)
         c.create_line(bfd_x0, bfd_y0, bfd_x1, bfd_y1, arrow=tk.BOTH, fill=str_col, width=1)
@@ -564,23 +588,10 @@ class ResultsPanel(ttk.Frame):
                       text=f"Bottom face: {bot_face_in:.2f}\" ({bot_face_ft:.2f} ft)",
                       fill=str_col, font=("Segoe UI", 7), anchor="n")
 
-        # --- Side 4: bottom end ---
+        # --- Side 4: bottom end (perpendicular to ground = vertical) ---
         if self._bottom_plumb_cut:
             # Two segments: plumb cut P0→P4, then ground seat P4→P3
-
-            # 4a: Plumb cut — vertical from P0 (tread, riser) to P4 (tread, 0)
-            plumb_height = riser  # height of the plumb cut
-            bp_off = 14  # pixels to the left in canvas x
-            bpc_x0, bpc_y0 = P0cx - bp_off, P0cy
-            bpc_x1, bpc_y1 = P4cx - bp_off, P4cy
-            c.create_line(P0cx, P0cy, bpc_x0, bpc_y0, fill=str_col, width=1)
-            c.create_line(P4cx, P4cy, bpc_x1, bpc_y1, fill=str_col, width=1)
-            c.create_line(bpc_x0, bpc_y0, bpc_x1, bpc_y1, arrow=tk.BOTH, fill=str_col, width=1)
-            c.create_text(bpc_x0 - 3, (bpc_y0 + bpc_y1) / 2,
-                          text=f"{plumb_height:.2f}\"", fill=str_col,
-                          font=("Segoe UI", 7), anchor="e")
-
-            # 4b: Ground seat — horizontal from P4 (tread, 0) to P3 (BW/sinθ, 0)
+            # Ground seat is horizontal → perpendicular is vertical
             seat_len = BW_div_sin - tread
             foot_off = 14   # pixels below ground line
             ffd_x0, ffd_y0 = P4cx, P4cy + foot_off
@@ -593,6 +604,7 @@ class ResultsPanel(ttk.Frame):
                           fill=str_col, font=("Segoe UI", 7), anchor="n")
         else:
             # Default: horizontal foot along ground from P3 to P0
+            # Ground is horizontal → perpendicular is vertical
             foot_off = 14   # pixels below ground line
             ffd_x0, ffd_y0 = P3cx, P3cy + foot_off
             ffd_x1, ffd_y1 = P0cx, P0cy + foot_off
@@ -603,14 +615,6 @@ class ResultsPanel(ttk.Frame):
                           text=f"Foot: {BW_div_sin:.2f}\"",
                           fill=str_col, font=("Segoe UI", 7), anchor="n")
 
-        # Centre-line (mid-board reference) — from P0+perp(-HALF_W) to P1+perp(-HALF_W)
-        ml_x0_c, ml_y0_c = px(P0_phys[0], P0_phys[1])
-        ml_x1_c, ml_y1_c = px(total_run, stringer_top_y)
-        # Offset both ends HALF_W perpendicular (below top face = perp(-HALF_W))
-        ml_x0_c += perp(-HALF_W)[0]; ml_y0_c += perp(-HALF_W)[1]
-        ml_x1_c += perp(-HALF_W)[0]; ml_y1_c += perp(-HALF_W)[1]
-        c.create_line(ml_x0_c, ml_y0_c, ml_x1_c, ml_y1_c,
-                      fill="#7A5533", width=1, dash=(4, 3))
 
         # --- Step notch cut lines ---
         # Each riser-tread corner is at physical (i*tread, i*riser) on the TOP FACE.
@@ -625,34 +629,6 @@ class ResultsPanel(ttk.Frame):
 
             # Corner canvas position (on top face)
             cnr_cx, cnr_cy = px(corner_px, corner_py)
-
-            # Tread seat: horizontal cut (constant y = corner_py) going back
-            # along the stringer by HALF_W in the perpendicular direction.
-            # End of tread seat on the centre-line (perp HALF_W below corner):
-            ts_cx = cnr_cx + perp(-HALF_W)[0]
-            ts_cy = cnr_cy + perp(-HALF_W)[1]
-
-            # Riser seat: vertical (plumb) cut going down from corner by
-            # HALF_W perpendicular.  Bottom of riser seat = same point ts.
-            # We represent the riser as a line from the corner straight down
-            # to the centre-line level (HALF_W below along-board direction).
-            rs_cx = cnr_cx + perp(-HALF_W)[0]
-            rs_cy = cnr_cy + perp(-HALF_W)[1]
-
-            # Draw the L: tread arm (horizontal across board, perp direction)
-            c.create_line(cnr_cx, cnr_cy, ts_cx, ts_cy,
-                          fill=NOTCH_COLOR, width=1, dash=(3, 2))
-            # Riser arm (plumb, from corner down to board bottom face)
-            rs_bot_cx = cnr_cx + perp(-HALF_W)[0]
-            rs_bot_cy = cnr_cy + perp(-HALF_W)[1]
-            c.create_line(cnr_cx, cnr_cy, rs_bot_cx, rs_bot_cy,
-                          fill=NOTCH_COLOR, width=1, dash=(3, 2))
-
-            # Small dot at the notch corner (centre-line intersection)
-            r_dot = 2
-            c.create_oval(ts_cx - r_dot, ts_cy - r_dot,
-                          ts_cx + r_dot, ts_cy + r_dot,
-                          fill=NOTCH_COLOR, outline="")
 
             # Riser label above the top face
             if i <= 9:   # avoid crowding on many steps
@@ -760,8 +736,8 @@ class ResultsPanel(ttk.Frame):
             breaks.append(stringer_len_in)
 
             BD_COLOR = "#995522"
-            # Offset further than the overall dim line (sdim_gap=24) so they
-            # don't overlap.  Use straight canvas-Y like the overall dims.
+            # Offset perpendicular above top face (toward steps, same
+            # side as the main top-face dim but further out)
             bd_gap = sdim_gap + 18
 
             for si in range(len(breaks) - 1):
@@ -778,12 +754,16 @@ class ResultsPanel(ttk.Frame):
                 t1x = base_x + a1x
                 t1y = base_y + a1y
 
-                # Dim line offset straight up in canvas (same direction as
-                # the overall top-face dim, but further out)
-                s0x, s0y = t0x, t0y - bd_gap
-                s1x, s1y = t1x, t1y - bd_gap
+                # Dim line at original axis-aligned position (straight up)
+                s0y = t0y - bd_gap
+                s1y = t1y - bd_gap
+                # Perpendicular extension lines from top face to dim line
+                _bt0_bd = -bd_gap / _perp_y
+                s0x = t0x + _bt0_bd * _perp_x
+                _bt1_bd = -bd_gap / _perp_y
+                s1x = t1x + _bt1_bd * _perp_x
 
-                # Tick marks from top face to dim line
+                # Tick marks from top face to dim line (perpendicular)
                 c.create_line(t0x, t0y, s0x, s0y, fill=BD_COLOR, width=1)
                 c.create_line(t1x, t1y, s1x, s1y, fill=BD_COLOR, width=1)
 
@@ -816,30 +796,26 @@ class ResultsPanel(ttk.Frame):
         #   C = bottom-face line at B's x coordinate
         # First, compute step-detail circle position (same logic as
         # _draw_step_detail) so we know where its left edge is.
-        _sd_P3cx, _sd_P3cy = P3cx, P3cy
-        _sd_P2cx, _sd_P2cy = P2cx, P2cy
-        _sd_bfd_x0 = _sd_P3cx + sdim_gap * 0  # P3 canvas x (on ground)
+        # Use the bottom-face dim line endpoints
         _sd_right_cx = px(total_run, 0)[0]     # right ground corner
         _sd_right_cy = px(total_run, 0)[1]
-        _sd_bfd_y0 = _sd_P3cy + sdim_gap
-        _sd_bfd_y1 = _sd_P2cy + sdim_gap
         _sd_cx, _sd_cy, _sd_inr = self._incircle(
-            _sd_P3cx, _sd_bfd_y0,
-            _sd_right_cx, _sd_right_cy,
-            _sd_P2cx, _sd_bfd_y1,
+            bfd_x0, bfd_y0,                    # A: bottom-face dim start
+            _sd_right_cx, _sd_right_cy,        # B: right/ground corner
+            bfd_x1, bfd_y1,                    # C: bottom-face dim end
         )
         _sd_radius = max(40, min(_sd_inr - 4, 90))
         _circle_left_cx = _sd_cx - _sd_radius
 
         # Triangle vertices (canvas coords) using the bottom-face
-        # DIMENSION LINE (sdim_gap below the actual bottom face):
+        # DIMENSION LINE (offset below the bottom face):
         #   A = where dim line crosses the ground line
         #   B = ground at circle left edge
         #   C = dim line at circle left edge x
-        _bfd_P3_cx, _bfd_P3_cy = P3cx, P3cy + sdim_gap  # dim line start
-        _bfd_P2_cx, _bfd_P2_cy = P2cx, P2cy + sdim_gap  # dim line end
+        _bfd_P3_cx, _bfd_P3_cy = bfd_x0, bfd_y0  # dim line start
+        _bfd_P2_cx, _bfd_P2_cy = bfd_x1, bfd_y1  # dim line end
         # Find where dim line crosses ground (canvas y = P3cy).
-        # Dim line goes from (P3cx, P3cy+sdim_gap) upward to (P2cx, P2cy+sdim_gap).
+        # Dim line goes from bfd_x0,bfd_y0 upward to bfd_x1,bfd_y1.
         # Interpolate: t where _bfd_P3_cy + t*(_bfd_P2_cy - _bfd_P3_cy) = P3cy
         _bfd_dy = _bfd_P2_cy - _bfd_P3_cy  # negative (going up in canvas)
         if abs(_bfd_dy) > 0.1:
@@ -1051,8 +1027,16 @@ class ResultsPanel(ttk.Frame):
             P3cx, P3cy = ox + BW_div_sin * scale, oy
             stringer_top_y = (n - 1) * riser
             P2cx, P2cy = ox + total_run * scale, oy - (stringer_top_y - BW_div_cos) * scale
-            bfd_x0, bfd_y0 = P3cx, P3cy + sdim_gap
-            bfd_x1, bfd_y1 = P2cx, P2cy + sdim_gap
+            # Perpendicular extension meets axis-aligned y-offset (must match _redraw_canvas)
+            _face_dx = P2cx - P3cx
+            _face_dy = P2cy - P3cy
+            _bperp_x = -_face_dy   # CW 90°
+            _bperp_y =  _face_dx
+            _bt = sdim_gap / _bperp_y if abs(_bperp_y) > 0.01 else 0
+            bfd_x0 = P3cx + _bt * _bperp_x
+            bfd_y0 = P3cy + sdim_gap
+            bfd_x1 = P2cx + _bt * _bperp_x
+            bfd_y1 = P2cy + sdim_gap
 
             # Right-wall / ground corner
             right_ground_cx = ox + total_run * scale
