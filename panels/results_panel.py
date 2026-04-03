@@ -29,6 +29,7 @@ class ResultsPanel(ttk.Frame):
         self._tread_board_gap: float = 0.25
         self._nosing_overhang: float = 0.75
         self._stringer_lumber_ft: int = 0  # 0 = auto
+        self._bottom_plumb_cut: bool = False
         self._steps_range = (2, 50, [])  # (n_lo, n_hi, valid_ns)
 
         self._build_ui()
@@ -112,7 +113,7 @@ class ResultsPanel(ttk.Frame):
                stringer_count: int = 3, stair_width: float = 36.0,
                tread_board_width: float = 5.5, tread_board_label: str = "",
                tread_board_gap: float = 0.25, nosing_overhang: float = 0.75,
-               stringer_lumber_ft: int = 0):
+               stringer_lumber_ft: int = 0, bottom_plumb_cut: bool = False):
         self._model      = model
         self._stringer_count = stringer_count
         self._stair_width = stair_width
@@ -121,6 +122,7 @@ class ResultsPanel(ttk.Frame):
         self._tread_board_gap = tread_board_gap
         self._nosing_overhang = nosing_overhang
         self._stringer_lumber_ft = stringer_lumber_ft
+        self._bottom_plumb_cut = bottom_plumb_cut
         self._all_configs = model.compute_configs()
         valid_ns = [c.n_risers for c in self._all_configs if c.is_valid]
 
@@ -422,27 +424,34 @@ class ResultsPanel(ttk.Frame):
             """Vertical offset in physical space (canvas px)."""
             return 0.0, -dist_in * scale
 
-        stringer_len_in = cfg.stringer_length
+        # ── Stringer geometry: determine bottom-end shape ────────────────
+        BW_div_cos = BOARD_W_IN / cos_a      # vertical drop across board width
+        BW_div_sin = BOARD_W_IN / sin_a      # horizontal run across board width
+
+        # Physical vertices — bottom end changes depending on plumb cut option
+        if self._bottom_plumb_cut:
+            # Plumb cut at first step corner (x=tread), then level seat on ground.
+            # 5-vertex polygon:
+            #   P0 = (tread, riser)     top-face at first step corner
+            #   P1 = top-face top-end   (unchanged)
+            #   P2 = bottom-face top    (unchanged)
+            #   P3 = (BW/sinθ, 0)       bottom-face meets ground
+            #   P4 = (tread, 0)         ground at plumb cut
+            P0_phys = (tread,       riser)
+            P3_phys = (BW_div_sin,  0.0)
+            P4_phys = (tread,       0.0)
+        else:
+            # Default: stringer tapers to a point, bottom face hits ground
+            P0_phys = (0.0,        0.0)
+            P3_phys = (BW_div_sin, 0.0)
+            P4_phys = None  # not used
 
         # --- Position the stringer so its TOP FACE passes through the corners ---
-        # The riser-tread corner for step i (1-indexed) is at physical
-        # (i*tread, i*riser).  The stringer top face is the line through all
-        # those corners, which in the normalised frame is simply the diagonal
-        # itself (they're collinear by definition).
-        #
-        # So: top-face line = the (0,0)→(total_run, stringer_top_y) diagonal.
-        # Centre-line = top face offset HALF_W downward (below face).
-        # Origin for drawing: bottom-left corner (0,0) in physical space,
-        # shifted HALF_W below the top face.
-        #
-        # Canvas anchor for centre-line start:
-        ref_cx, ref_cy = px(0, 0)   # top-face at x=0 is physical (0, 0)
+        # Canvas anchor for centre-line start (top-face bottom-end):
+        ref_cx, ref_cy = px(P0_phys[0], P0_phys[1])
         # centre-line start = top-face start offset HALF_W below (perp -HALF_W)
         cl_x0 = ref_cx + perp(-HALF_W)[0]
         cl_y0 = ref_cy + perp(-HALF_W)[1]
-        # centre-line end
-        cl_x1 = ref_cx + along(stringer_len_in)[0] + perp(-HALF_W)[0]
-        cl_y1 = ref_cy + along(stringer_len_in)[1] + perp(-HALF_W)[1]
 
         # Helper: canvas position of a point on the CENTRE-LINE at arc-length d
         def cl_pt(d_in):
@@ -458,63 +467,15 @@ class ResultsPanel(ttk.Frame):
             cx, cy = cl_pt(d_in)
             return cx + perp(-HALF_W)[0], cy + perp(-HALF_W)[1]
 
-        # --- Build the stringer outline polygon with PLUMB end cuts ---
-        # Bottom plumb cut:
-        #   The stringer bottom-end sits on the floor (y=0 physical).
-        #   The plumb cut intersects: top face at x_top_bot, bottom face at x_bot_bot.
-        #
-        # The top face in physical coords: y = x * tan(θ)  →  the top-face
-        # points trace the stair diagonal exactly (they ARE at y = x*tan θ).
-        # At the bottom end the plumb cut is at x = 0 (left wall / floor junction).
-        # Top-face point at x=0 → physical (0, 0), which IS the stair corner.
-        # Bottom-face point: same x=0, but BOARD_W_IN lower along the board →
-        #   physical offset from top = (-sin θ * BOARD_W_IN, -cos θ * BOARD_W_IN)
-        #   but a plumb cut is vertical, so we need the x where the bottom face
-        #   intersects x = 0 (plumb cut plane).
-        #
-        # Bottom face equation (physical): y = x*tan(θ) - BOARD_W_IN / cos(θ)
-        #   (shifted BOARD_W_IN perpendicular below top face)
-        # At x=0: y_bot_bottom_face = -BOARD_W_IN / cos(θ)  (below ground, clipped)
-        # We draw the plumb cut from the top-face point down to the ground (y=0),
-        # then along the ground to where the bottom face hits ground level.
-        #
-        # Bottom face hits y=0: 0 = x*tan(θ) - BOARD_W_IN/cos(θ)
-        #   x_ground = BOARD_W_IN / sin(θ)   (run distance from origin)
-        #
-        # So the bottom-end outline (in physical coords) is:
-        #   top-face at x=0: (0, 0)
-        #   plumb down to ground: (0, 0)  — same point, it's the stair origin
-        #   along ground to: (BOARD_W_IN/sin θ, 0)
-        #   up the bottom face to where it meets the board proper.
-        # But for simplicity we just clip the bottom to the ground line.
-        #
-        # For the top end (plumb cut at x = total_run):
-        #   top-face at x=total_run: physical (total_run, stringer_top_y)
-        #   bottom-face at plumb x=total_run: y = stringer_top_y - BOARD_W_IN/cos θ
-        #
-        # Build the polygon as a series of physical points, convert to canvas.
-        # We use 6 vertices (hexagon for plumb-cut board):
-        #
-        #  P0 (top-face, bottom-end)    = (0,            0)
-        #  P1 (top-face, top-end)       = (total_run,    stringer_top_y)
-        #  P2 (bot-face, top-end plumb) = (total_run,    stringer_top_y - BW/cos θ)
-        #  P3 (bot-face along bottom run back to where it hits ground if needed,
-        #       otherwise straight to P4)
-        #  P4 (ground at x = BW/sin θ)                      ← bottom foot
-        #  P5 (origin / ground at x=0) — only if top face starts above ground
-
-        BW_div_cos = BOARD_W_IN / cos_a      # vertical drop across board width
-        BW_div_sin = BOARD_W_IN / sin_a      # horizontal run across board width
-
-        # The stringer top face reaches (total_run, stringer_top_y) — one
-        # riser below the landing.  The plumb cut is vertical at x=total_run.
-        # Physical vertices
+        # --- Build the stringer outline polygon ---
         poly_phys = [
-            (0.0,        0.0),                                  # P0 top-face bottom-end
+            P0_phys,                                            # P0 top-face bottom-end
             (total_run,  stringer_top_y),                       # P1 top-face top-end
             (total_run,  stringer_top_y - BW_div_cos),          # P2 bottom-face top-end (plumb)
-            (BW_div_sin, 0.0),                                  # P3 bottom-face hits ground
+            P3_phys,                                            # P3 bottom-face bottom-end
         ]
+        if P4_phys is not None:
+            poly_phys.append(P4_phys)                           # P4 ground at plumb cut
         # Convert to canvas coords
         poly_canvas = []
         for (px_phys, py_phys) in poly_phys:
@@ -526,29 +487,29 @@ class ResultsPanel(ttk.Frame):
                          stipple="gray50")
 
         # ── Stringer board: dimension all 4 sides ──────────────────────
-        # The cut stringer is a 4-sided shape (parallelogram with plumb ends):
+        # The cut stringer is a 4-sided shape:
         #   P0 = (0, 0)                              top-face, bottom-end
         #   P1 = (total_run, stringer_top_y)           top-face, top-end
         #   P2 = (total_run, stringer_top_y-BW/cosθ)  bottom-face, top-end (plumb)
-        #   P3 = (BW/sinθ, 0)                         bottom-face, bottom-end
+        #   P3 = (BW/sinθ, 0)                         bottom-face meets ground
+        #   P4 = (tread, 0)  [plumb cut only]          ground at plumb cut
         #
-        # Side lengths:
-        #   P0→P1 (top face)    = stringer_length  (hypotenuse)
-        #   P1→P2 (top plumb)   = BW_div_cos        (vertical height of top cut)
-        #   P2→P3 (bottom face) = stringer_length  (parallel to top)
-        #   P3→P0 (bottom foot) = BW_div_sin        (horizontal run at base)
-        #
-        # Canvas coords of all four corners
-        P0cx, P0cy = px(0.0,        0.0)
+        # Canvas coords of polygon corners
+        P0cx, P0cy = px(P0_phys[0], P0_phys[1])
         P1cx, P1cy = px(total_run,  stringer_top_y)
         P2cx, P2cy = px(total_run,  stringer_top_y - BW_div_cos)
-        P3cx, P3cy = px(BW_div_sin, 0.0)
+        P3cx, P3cy = px(P3_phys[0], P3_phys[1])
+        if P4_phys is not None:
+            P4cx, P4cy = px(P4_phys[0], P4_phys[1])
 
         str_col = "#7A5533"
         sdim_gap = 24   # pixels gap between face and dimension line
 
         # --- Side 1: top face P0→P1 (offset straight up in canvas) ---
-        top_face_len = _math.sqrt(total_run**2 + stringer_top_y**2)
+        top_face_dx = total_run - P0_phys[0]
+        top_face_dy = stringer_top_y - P0_phys[1]
+        top_face_len = _math.sqrt(top_face_dx**2 + top_face_dy**2)
+        stringer_len_in = top_face_len  # effective stringer length (accounts for bottom cut)
         sl_ft = top_face_len / 12.0
         tfd_x0, tfd_y0 = P0cx, P0cy - sdim_gap
         tfd_x1, tfd_y1 = P1cx, P1cy - sdim_gap
@@ -573,7 +534,9 @@ class ResultsPanel(ttk.Frame):
 
         # --- Side 3: bottom face P2→P3 (offset straight down in canvas) ---
         import math as _m3
-        bot_face_in = _m3.sqrt((total_run - BW_div_sin)**2 + (stringer_top_y - BW_div_cos)**2)
+        bot_face_dx = total_run - P3_phys[0]
+        bot_face_dy = (stringer_top_y - BW_div_cos) - P3_phys[1]
+        bot_face_in = _m3.sqrt(bot_face_dx**2 + bot_face_dy**2)
         bot_face_ft = bot_face_in / 12.0
         bfd_x0, bfd_y0 = P3cx, P3cy + sdim_gap
         bfd_x1, bfd_y1 = P2cx, P2cy + sdim_gap
@@ -585,19 +548,47 @@ class ResultsPanel(ttk.Frame):
                       text=f"Bottom face: {bot_face_in:.2f}\" ({bot_face_ft:.2f} ft)",
                       fill=str_col, font=("Segoe UI", 7), anchor="n")
 
-        # --- Side 4: bottom foot P3→P0 (horizontal at ground, below) ---
-        foot_off = 14   # pixels below ground line
-        ffd_x0, ffd_y0 = P3cx, P3cy + foot_off
-        ffd_x1, ffd_y1 = P0cx, P0cy + foot_off
-        c.create_line(P3cx, P3cy, ffd_x0, ffd_y0, fill=str_col, width=1)
-        c.create_line(P0cx, P0cy, ffd_x1, ffd_y1, fill=str_col, width=1)
-        c.create_line(ffd_x0, ffd_y0, ffd_x1, ffd_y1, arrow=tk.BOTH, fill=str_col, width=1)
-        c.create_text((ffd_x0 + ffd_x1) / 2, ffd_y0 + 3,
-                      text=f"Foot: {BW_div_sin:.2f}\"",
-                      fill=str_col, font=("Segoe UI", 7), anchor="n")
+        # --- Side 4: bottom end ---
+        if self._bottom_plumb_cut:
+            # Two segments: plumb cut P0→P4, then ground seat P4→P3
+
+            # 4a: Plumb cut — vertical from P0 (tread, riser) to P4 (tread, 0)
+            plumb_height = riser  # height of the plumb cut
+            bp_off = 14  # pixels to the left in canvas x
+            bpc_x0, bpc_y0 = P0cx - bp_off, P0cy
+            bpc_x1, bpc_y1 = P4cx - bp_off, P4cy
+            c.create_line(P0cx, P0cy, bpc_x0, bpc_y0, fill=str_col, width=1)
+            c.create_line(P4cx, P4cy, bpc_x1, bpc_y1, fill=str_col, width=1)
+            c.create_line(bpc_x0, bpc_y0, bpc_x1, bpc_y1, arrow=tk.BOTH, fill=str_col, width=1)
+            c.create_text(bpc_x0 - 3, (bpc_y0 + bpc_y1) / 2,
+                          text=f"{plumb_height:.2f}\"", fill=str_col,
+                          font=("Segoe UI", 7), anchor="e")
+
+            # 4b: Ground seat — horizontal from P4 (tread, 0) to P3 (BW/sinθ, 0)
+            seat_len = BW_div_sin - tread
+            foot_off = 14   # pixels below ground line
+            ffd_x0, ffd_y0 = P4cx, P4cy + foot_off
+            ffd_x1, ffd_y1 = P3cx, P3cy + foot_off
+            c.create_line(P4cx, P4cy, ffd_x0, ffd_y0, fill=str_col, width=1)
+            c.create_line(P3cx, P3cy, ffd_x1, ffd_y1, fill=str_col, width=1)
+            c.create_line(ffd_x0, ffd_y0, ffd_x1, ffd_y1, arrow=tk.BOTH, fill=str_col, width=1)
+            c.create_text((ffd_x0 + ffd_x1) / 2, ffd_y0 + 3,
+                          text=f"Seat: {seat_len:.2f}\"",
+                          fill=str_col, font=("Segoe UI", 7), anchor="n")
+        else:
+            # Default: horizontal foot along ground from P3 to P0
+            foot_off = 14   # pixels below ground line
+            ffd_x0, ffd_y0 = P3cx, P3cy + foot_off
+            ffd_x1, ffd_y1 = P0cx, P0cy + foot_off
+            c.create_line(P3cx, P3cy, ffd_x0, ffd_y0, fill=str_col, width=1)
+            c.create_line(P0cx, P0cy, ffd_x1, ffd_y1, fill=str_col, width=1)
+            c.create_line(ffd_x0, ffd_y0, ffd_x1, ffd_y1, arrow=tk.BOTH, fill=str_col, width=1)
+            c.create_text((ffd_x0 + ffd_x1) / 2, ffd_y0 + 3,
+                          text=f"Foot: {BW_div_sin:.2f}\"",
+                          fill=str_col, font=("Segoe UI", 7), anchor="n")
 
         # Centre-line (mid-board reference) — from P0+perp(-HALF_W) to P1+perp(-HALF_W)
-        ml_x0_c, ml_y0_c = px(0, 0)
+        ml_x0_c, ml_y0_c = px(P0_phys[0], P0_phys[1])
         ml_x1_c, ml_y1_c = px(total_run, stringer_top_y)
         # Offset both ends HALF_W perpendicular (below top face = perp(-HALF_W))
         ml_x0_c += perp(-HALF_W)[0]; ml_y0_c += perp(-HALF_W)[1]
@@ -656,12 +647,15 @@ class ResultsPanel(ttk.Frame):
                               font=("Segoe UI", 6), anchor="sw")
 
         # --- Bottom bearing indicator ---
-        # Small vertical line at x=0 on the ground to show the plumb bottom cut.
-        bear_cx, bear_cy = px(0, 0)
+        # Small vertical line on the ground to show the bottom bearing point.
+        if self._bottom_plumb_cut:
+            bear_cx, bear_cy = px(tread, 0)
+        else:
+            bear_cx, bear_cy = px(0, 0)
         c.create_line(bear_cx, bear_cy, bear_cx, bear_cy + 8,
                       fill="#7A5533", width=3)
         c.create_text(bear_cx + 3, bear_cy + 10,
-                      text="⊥", fill="#7A5533",
+                      text="\u22a5", fill="#7A5533",
                       font=("Segoe UI", 7), anchor="n")
 
         # (stringer length label moved to the dimension line below the board)
@@ -718,7 +712,7 @@ class ResultsPanel(ttk.Frame):
                     break
                 # Position on the top face at distance d_in along the stringer
                 along_x, along_y = along(d_in)
-                tf_cx, tf_cy = px(0, 0)
+                tf_cx, tf_cy = px(P0_phys[0], P0_phys[1])
                 tf_cx += along_x
                 tf_cy += along_y
                 # Line extends from above the top face to below the bottom face
@@ -760,7 +754,7 @@ class ResultsPanel(ttk.Frame):
                 # Endpoints on top face
                 a0x, a0y = along(d0)
                 a1x, a1y = along(d1)
-                base_x, base_y = px(0, 0)
+                base_x, base_y = px(P0_phys[0], P0_phys[1])
                 t0x = base_x + a0x
                 t0y = base_y + a0y
                 t1x = base_x + a1x
@@ -917,6 +911,7 @@ class ResultsPanel(ttk.Frame):
             BW_div_cos = BOARD_W_IN / cos_a
             BW_div_sin = BOARD_W_IN / sin_a
             # Bottom-face dim line endpoints (canvas coords)
+            # P3 = (BW/sinθ, 0) in both modes (bottom face meets ground here)
             P3cx, P3cy = ox + BW_div_sin * scale, oy
             stringer_top_y = (n - 1) * riser
             P2cx, P2cy = ox + total_run * scale, oy - (stringer_top_y - BW_div_cos) * scale

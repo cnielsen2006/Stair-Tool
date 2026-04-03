@@ -33,6 +33,7 @@ DEFAULT_TREAD_BOARD_WIDTH = 5.5  # nominal 1×6 actual width (inches)
 DEFAULT_TREAD_BOARD_GAP = 0.25   # gap between tread boards (inches)
 DEFAULT_NOSING_OVERHANG = 0.75   # acceptable nosing overhang past last board (inches)
 DEFAULT_STRINGER_LUMBER_FT = 0   # 0 = auto (pick shortest standard length)
+DEFAULT_BOTTOM_PLUMB_CUT = False # whether to plumb-cut the stringer at the first riser
 
 # Standard dimensional lumber lengths (feet)
 STRINGER_LUMBER_OPTIONS = [0, 8, 10, 12, 14, 16, 18, 20]  # 0 = auto

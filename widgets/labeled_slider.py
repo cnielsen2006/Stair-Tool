@@ -3,7 +3,7 @@ from tkinter import ttk
 
 
 class LabeledSlider(ttk.Frame):
-    """Composite widget: label + horizontal slider + numeric entry, all linked."""
+    """Composite widget: label + numeric entry on the same row, slider below."""
 
     def __init__(self, parent, label: str, from_: float, to: float,
                  initial: float, unit: str = "in", resolution: float = 1.0,
@@ -17,12 +17,19 @@ class LabeledSlider(ttk.Frame):
 
         self._var = tk.DoubleVar(value=initial)
 
-        # Title row
+        # Title row: label on left, entry + unit + feet label on right
         title_frame = ttk.Frame(self)
         title_frame.pack(fill="x")
         ttk.Label(title_frame, text=label, font=("Segoe UI", 9, "bold")).pack(side="left")
+
         self._unit_label = ttk.Label(title_frame, text="", foreground="#555555")
         self._unit_label.pack(side="right")
+
+        ttk.Label(title_frame, text=unit, foreground="#555555").pack(side="right", padx=(2, 4))
+        self._entry_var = tk.StringVar(value=f"{initial:.1f}")
+        self._entry = ttk.Entry(title_frame, textvariable=self._entry_var, width=6,
+                                justify="right")
+        self._entry.pack(side="right")
 
         # Slider
         self._scale = ttk.Scale(
@@ -32,15 +39,6 @@ class LabeledSlider(ttk.Frame):
             command=self._on_scale_moved,
         )
         self._scale.pack(fill="x", pady=(2, 0))
-
-        # Entry + unit
-        entry_frame = ttk.Frame(self)
-        entry_frame.pack(fill="x")
-        self._entry_var = tk.StringVar(value=f"{initial:.1f}")
-        self._entry = ttk.Entry(entry_frame, textvariable=self._entry_var, width=8,
-                                justify="right")
-        self._entry.pack(side="left")
-        ttk.Label(entry_frame, text=unit, foreground="#555555").pack(side="left", padx=(2, 0))
 
         self._entry.bind("<Return>",    self._on_entry_commit)
         self._entry.bind("<FocusOut>",  self._on_entry_commit)
@@ -56,9 +54,9 @@ class LabeledSlider(ttk.Frame):
         feet = int(v) // 12
         inches = v - feet * 12
         if feet:
-            self._unit_label.config(text=f"{feet}' {inches:.1f}\"")
+            self._unit_label.config(text=f"({feet}' {inches:.1f}\")")
         else:
-            self._unit_label.config(text=f"{v:.1f}\"")
+            self._unit_label.config(text=f"({v:.1f}\")")
 
     def _on_scale_moved(self, _=None):
         if self._updating:

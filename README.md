@@ -13,7 +13,7 @@ A desktop stair calculator built with Python and tkinter that computes optimal s
 - **Per-step constraint controls** — adjustable min/max riser height and tread depth (IBC/IRC defaults pre-loaded)
 - **Optimal step count selection** — scores all valid N values by closeness to ideal rise (7") and tread (11")
 - **Step count selector** — spinbox in the left panel lets you pick any step count (including landing); constraints never override your choice
-- **Construction details** — stringer count, stair width, and tread lumber board size inputs
+- **Construction details** — stringer count, stair width, tread lumber size, board gap, nosing overhang, and stringer lumber length inputs
 - **Live stair diagram** — scaled canvas drawing with:
   - Step profile and filled rectangles
   - First-riser and first-tread dimension arrows
@@ -21,9 +21,9 @@ A desktop stair calculator built with Python and tkinter that computes optimal s
   - 2×12 stringer overlay with plumb end cuts, notch marks, and full 4-side dimensioning
   - Stair angle arc indicator (color-coded ideal/warn/bad zones)
   - Intermediate support markers when stringer span exceeds 8 ft
-  - **Materials list** — positioned via incircle of the upper-left whitespace triangle for balanced placement
+  - **Materials list** — stringers, treads, and stringer-cut dimensions (tread seat, riser seat, notch depth, throat) in the upper-left whitespace
   - **Step detail inset** — zoomed single-step view inscribed in the lower-right whitespace triangle (incircle positioning)
-- **Results summary** — riser, tread, 2R+T (with comfort rating), stringer length/angle, support count/spacing, inline comfort gauge bar
+- **Results summary** — riser, tread, 2R+T (with comfort rating), stringer length/angle, stair angle (with ideal/warn/bad rating), support count/spacing, inline comfort gauge bar
 - **Board join markers** — when selected lumber is shorter than the stringer, perpendicular join lines and per-segment dimension callouts are drawn along the stringer
 - **Single-instance enforcement** — only one window can run at a time; re-launching brings the existing window to front
 - **Settings persistence** — all inputs (dimensions, constraints, construction details) saved and restored on next launch
@@ -38,7 +38,7 @@ A desktop stair calculator built with Python and tkinter that computes optimal s
 | Riser Height  | 4.00"  | 7.75"  | 7.00"  |
 | Tread Depth   | 10.00" | 11.00" | 11.00" |
 | 2R + T        | —      | —      | 24–25" |
-| Stair Angle   | —      | —      | 30°–35°|
+| Stair Angle   | 25°    | 40°    | 30°–35°|
 
 ---
 
@@ -76,6 +76,8 @@ Stair-Tool/
 ├── app.py                   # App controller (root window, wires panels)
 ├── models.py                # StairModel + StepConfig (pure logic)
 ├── constants.py             # IBC/IRC defaults, canvas sizes, colors
+├── stairs.ico               # App icon
+├── launch.bat               # Windows launcher script
 ├── panels/
 │   ├── input_panel.py       # Left panel: sliders + constraints + step count + construction inputs
 │   └── results_panel.py     # Right panel: canvas diagram + results summary

@@ -10,6 +10,8 @@ from constants import (
     DEFAULT_TREAD_BOARD_WIDTH, TREAD_BOARD_OPTIONS,
     DEFAULT_TREAD_BOARD_GAP, DEFAULT_NOSING_OVERHANG,
     DEFAULT_STRINGER_LUMBER_FT, STRINGER_LUMBER_OPTIONS,
+    DEFAULT_BOTTOM_PLUMB_CUT,
+    COMFORT_IDEAL_LO, COMFORT_IDEAL_HI, COMFORT_WARN_LO, COMFORT_WARN_HI,
 )
 from widgets.labeled_slider import LabeledSlider
 from widgets.constraint_row import ConstraintRow
@@ -27,6 +29,7 @@ _DEFAULTS = {
     "tread_board_gap":  DEFAULT_TREAD_BOARD_GAP,
     "nosing_overhang":  DEFAULT_NOSING_OVERHANG,
     "stringer_lumber_ft": DEFAULT_STRINGER_LUMBER_FT,
+    "bottom_plumb_cut": DEFAULT_BOTTOM_PLUMB_CUT,
 }
 
 
@@ -60,6 +63,17 @@ class InputPanel(ttk.LabelFrame):
             command=self._changed,
         )
         self.run_slider.pack(fill="x", pady=(8, 0))
+
+        # Comfort gauge (2R+T) — compact colored bar below Total Run
+        gauge_row = ttk.Frame(self)
+        gauge_row.pack(fill="x", pady=(4, 0))
+        ttk.Label(gauge_row, text="Comfort:", font=("Segoe UI", 8),
+                  foreground="#555555").pack(side="left")
+        self._gauge_canvas = tk.Canvas(gauge_row, width=0, height=10, bd=0,
+                                       highlightthickness=0, background="#EEEEEE")
+        self._gauge_canvas.pack(side="left", fill="x", expand=True, padx=(4, 0))
+        self._gauge_canvas.bind("<Configure>", self._redraw_gauge)
+        self._current_rot = None
 
         # --- Per-step constraints ---
         ttk.Separator(self, orient="horizontal").pack(fill="x", pady=(12, 6))
@@ -194,6 +208,14 @@ class InputPanel(ttk.LabelFrame):
         self._stringer_lumber_combo.grid(row=5, column=1, sticky="w", padx=(4, 0), pady=(2, 0))
         self._stringer_lumber_combo.bind("<<ComboboxSelected>>", lambda _: self._changed())
 
+        # Bottom plumb cut checkbox
+        self._bottom_plumb_cut_var = tk.BooleanVar(value=iv["bottom_plumb_cut"])
+        self._bottom_plumb_cut_cb = ttk.Checkbutton(
+            cons_frame, text="Bottom plumb cut",
+            variable=self._bottom_plumb_cut_var, command=self._changed)
+        self._bottom_plumb_cut_cb.grid(row=6, column=0, columnspan=2,
+                                        sticky="w", pady=(2, 0))
+
         # --- Reset button ---
         ttk.Separator(self, orient="horizontal").pack(fill="x", pady=(12, 6))
         ttk.Button(self, text="Reset to IBC/IRC Defaults",
@@ -233,6 +255,50 @@ class InputPanel(ttk.LabelFrame):
         else:
             self._valid_range_label.config(text="no valid solution", foreground="#CC3333")
         self._steps_var.set(str(selected_risers - 1))
+
+    def set_comfort_rot(self, rot: float | None):
+        """Update the 2R+T comfort gauge value."""
+        self._current_rot = rot
+        self._redraw_gauge()
+
+    def _redraw_gauge(self, _=None):
+        gc = self._gauge_canvas
+        gc.delete("all")
+        gw = gc.winfo_width() or 200
+        gh = gc.winfo_height() or 10
+
+        rot = self._current_rot
+        full_lo = COMFORT_WARN_LO - 2
+        full_hi = COMFORT_WARN_HI + 2
+
+        def rot_to_x(v):
+            return max(0, min(gw, (v - full_lo) / (full_hi - full_lo) * gw))
+
+        zones = [
+            (full_lo,          COMFORT_WARN_LO,  "#E05050"),
+            (COMFORT_WARN_LO,  COMFORT_IDEAL_LO, "#E0A020"),
+            (COMFORT_IDEAL_LO, COMFORT_IDEAL_HI, "#40AA40"),
+            (COMFORT_IDEAL_HI, COMFORT_WARN_HI,  "#E0A020"),
+            (COMFORT_WARN_HI,  full_hi,           "#E05050"),
+        ]
+        for z_lo, z_hi, color in zones:
+            x0 = rot_to_x(z_lo)
+            x1 = rot_to_x(z_hi)
+            if x1 > x0:
+                gc.create_rectangle(x0, 0, x1, gh, fill=color, outline="")
+
+        for v in (COMFORT_WARN_LO, COMFORT_IDEAL_LO, COMFORT_IDEAL_HI, COMFORT_WARN_HI):
+            x = rot_to_x(v)
+            gc.create_line(x, 0, x, gh, fill="#FFFFFF", width=1)
+
+        if rot is None:
+            return
+
+        needle_x = rot_to_x(rot)
+        gc.create_line(needle_x, 0, needle_x, gh, fill="#000000", width=2)
+        gc.create_polygon(
+            needle_x - 3, 0, needle_x + 3, 0, needle_x, 4,
+            fill="#000000", outline="")
 
     def _reset_defaults(self):
         self.rise_constraints.set_values(DEFAULT_MIN_RISE, DEFAULT_MAX_RISE)
@@ -284,4 +350,5 @@ class InputPanel(ttk.LabelFrame):
             "tread_board_gap": tread_board_gap,
             "nosing_overhang": nosing_overhang,
             "stringer_lumber_ft": stringer_lumber_ft,
+            "bottom_plumb_cut": self._bottom_plumb_cut_var.get(),
         }
