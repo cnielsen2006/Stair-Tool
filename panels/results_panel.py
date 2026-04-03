@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
+from tkinter import font as tkfont
 from typing import Optional
 
 from constants import (
@@ -509,8 +510,23 @@ class ResultsPanel(ttk.Frame):
         top_face_dx = total_run - P0_phys[0]
         top_face_dy = stringer_top_y - P0_phys[1]
         top_face_len = _math.sqrt(top_face_dx**2 + top_face_dy**2)
-        stringer_len_in = top_face_len  # effective stringer length (accounts for bottom cut)
-        sl_ft = top_face_len / 12.0
+        # Board length: the rectangular board must contain the full stringer
+        # shape.  Project all vertices onto the along-stringer axis; the
+        # extent (max − min) is the true required board length.
+        if self._bottom_plumb_cut:
+            def _along_proj(phys_x, phys_y):
+                return phys_x * cos_a + phys_y * sin_a
+            _proj_vals = [_along_proj(*v) for v in poly_phys]
+            _proj_min = min(_proj_vals)
+            _proj_max = max(_proj_vals)
+            stringer_len_in = _proj_max - _proj_min
+            # How far back P0 is from the true board start (proj_min)
+            _p0_offset = _along_proj(*P0_phys) - _proj_min
+        else:
+            stringer_len_in = top_face_len
+            _p0_offset = 0.0
+        self._effective_stringer_len = stringer_len_in  # for materials list
+        sl_ft = stringer_len_in / 12.0
         tfd_x0, tfd_y0 = P0cx, P0cy - sdim_gap
         tfd_x1, tfd_y1 = P1cx, P1cy - sdim_gap
         c.create_line(P0cx, P0cy, tfd_x0, tfd_y0, fill=str_col, width=1)
@@ -707,11 +723,13 @@ class ResultsPanel(ttk.Frame):
                 return -dist_in * sin_a * scale, -dist_in * cos_a * scale
 
             for ji in range(1, n_joins + 1):
-                d_in = ji * lumber_in  # distance along stringer from bottom
+                d_in = ji * lumber_in  # distance along board from true start
                 if d_in >= stringer_len_in:
                     break
-                # Position on the top face at distance d_in along the stringer
-                along_x, along_y = along(d_in)
+                # Position on the top face: d_in is from the board start,
+                # but the top face begins _p0_offset into the board.
+                d_top = d_in - _p0_offset  # distance along top face from P0
+                along_x, along_y = along(d_top)
                 tf_cx, tf_cy = px(P0_phys[0], P0_phys[1])
                 tf_cx += along_x
                 tf_cy += along_y
@@ -751,9 +769,9 @@ class ResultsPanel(ttk.Frame):
                 d1 = breaks[si + 1]
                 seg_len = d1 - d0
 
-                # Endpoints on top face
-                a0x, a0y = along(d0)
-                a1x, a1y = along(d1)
+                # Endpoints on top face (offset from board start to top face)
+                a0x, a0y = along(d0 - _p0_offset)
+                a1x, a1y = along(d1 - _p0_offset)
                 base_x, base_y = px(P0_phys[0], P0_phys[1])
                 t0x = base_x + a0x
                 t0y = base_y + a0y
@@ -784,16 +802,134 @@ class ResultsPanel(ttk.Frame):
                               anchor="s")
 
         # ── Stair angle arc indicator ──────────────────────────────────
-        # Draw a protractor-style arc at the bottom-left corner of the stair
-        # from horizontal (0°) up to the stringer angle, with colour coding.
+        # Draw a protractor-style arc in the white triangular space between
+        # the stringer top face and the step profile.
         import math as _math
         ang_deg = _math.degrees(angle)   # angle already computed above
 
         # Arc radius in pixels — scale with canvas size but keep readable
         arc_r = max(28, min(50, usable_w * 0.08))
 
-        # Canvas origin of the arc = bottom-left stair corner
-        arc_ox, arc_oy = px(0, 0)
+        # Position: incircle of the triangle formed by:
+        #   A = P3 on ground (bottom face meets ground)
+        #   B = left edge of step-detail circle on ground
+        #   C = bottom-face line at B's x coordinate
+        # First, compute step-detail circle position (same logic as
+        # _draw_step_detail) so we know where its left edge is.
+        _sd_P3cx, _sd_P3cy = P3cx, P3cy
+        _sd_P2cx, _sd_P2cy = P2cx, P2cy
+        _sd_bfd_x0 = _sd_P3cx + sdim_gap * 0  # P3 canvas x (on ground)
+        _sd_right_cx = px(total_run, 0)[0]     # right ground corner
+        _sd_right_cy = px(total_run, 0)[1]
+        _sd_bfd_y0 = _sd_P3cy + sdim_gap
+        _sd_bfd_y1 = _sd_P2cy + sdim_gap
+        _sd_cx, _sd_cy, _sd_inr = self._incircle(
+            _sd_P3cx, _sd_bfd_y0,
+            _sd_right_cx, _sd_right_cy,
+            _sd_P2cx, _sd_bfd_y1,
+        )
+        _sd_radius = max(40, min(_sd_inr - 4, 90))
+        _circle_left_cx = _sd_cx - _sd_radius
+
+        # Triangle vertices (canvas coords) using the bottom-face
+        # DIMENSION LINE (sdim_gap below the actual bottom face):
+        #   A = where dim line crosses the ground line
+        #   B = ground at circle left edge
+        #   C = dim line at circle left edge x
+        _bfd_P3_cx, _bfd_P3_cy = P3cx, P3cy + sdim_gap  # dim line start
+        _bfd_P2_cx, _bfd_P2_cy = P2cx, P2cy + sdim_gap  # dim line end
+        # Find where dim line crosses ground (canvas y = P3cy).
+        # Dim line goes from (P3cx, P3cy+sdim_gap) upward to (P2cx, P2cy+sdim_gap).
+        # Interpolate: t where _bfd_P3_cy + t*(_bfd_P2_cy - _bfd_P3_cy) = P3cy
+        _bfd_dy = _bfd_P2_cy - _bfd_P3_cy  # negative (going up in canvas)
+        if abs(_bfd_dy) > 0.1:
+            _t_ground = (P3cy - _bfd_P3_cy) / _bfd_dy
+            _tA_cx = _bfd_P3_cx + _t_ground * (_bfd_P2_cx - _bfd_P3_cx)
+        else:
+            _tA_cx = _bfd_P3_cx
+        _tA_cy = P3cy                                     # on the ground line
+        _tB_cx, _tB_cy = _circle_left_cx, P3cy            # ground at circle left edge
+        # Dim line at circle-left x: interpolate along dim P3→dim P2
+        _t_frac = (_circle_left_cx - _bfd_P3_cx) / (_bfd_P2_cx - _bfd_P3_cx) if _bfd_P2_cx != _bfd_P3_cx else 0
+        _tC_cx = _circle_left_cx
+        _tC_cy = _bfd_P3_cy + _t_frac * (_bfd_P2_cy - _bfd_P3_cy)
+
+        # Centroid of the triangle — visual centre
+        _cen_cx = (_tA_cx + _tB_cx + _tC_cx) / 3
+        _cen_cy = (_tA_cy + _tB_cy + _tC_cy) / 3
+
+        # Size the arc relative to the triangle height
+        _ang_rad = _math.radians(ang_deg)
+        _tri_h = abs(_tB_cy - _tC_cy)  # vertical extent (right side)
+        arc_r = max(20, min(50, _tri_h * 0.35))
+
+        # Bounding box of the pie slice + label, relative to arc origin.
+        # Canvas y-down.  The label is anchor="w" so text extends right.
+        _mid_ang = _ang_rad / 2
+        _label_r = arc_r + 10
+        _lbl_font = tkfont.Font(family="Segoe UI", size=7, weight="bold")
+        _lbl_text_w = _lbl_font.measure(f"{ang_deg:.1f}°")
+        _lbl_text_h = _lbl_font.metrics("linespace")
+        _lbl_anchor_x = _label_r * _math.cos(_mid_ang)
+        _lbl_anchor_y = -_label_r * _math.sin(_mid_ang)
+        _pts_x = [0.0, arc_r, arc_r * _math.cos(_ang_rad),
+                  _lbl_anchor_x, _lbl_anchor_x + _lbl_text_w]
+        _pts_y = [0.0, 0.0, -arc_r * _math.sin(_ang_rad),
+                  _lbl_anchor_y - _lbl_text_h / 2,
+                  _lbl_anchor_y + _lbl_text_h / 2]
+        _pie_x_min = min(_pts_x)
+        _pie_x_max = max(_pts_x)
+        _pie_y_min = min(_pts_y)
+        _pie_y_max = max(_pts_y)
+        _pie_w = _pie_x_max - _pie_x_min
+        _pie_h = _pie_y_max - _pie_y_min
+
+        # Place the pie bounding box inside the right triangle with equal
+        # margin from all three sides.  The triangle has:
+        #   base  = A→B (horizontal, y = _tA_cy)
+        #   right = B→C (vertical,   x = _tB_cx)
+        #   hyp   = A→C (diagonal)
+        # For a rectangle w×h, equal margin m from each side means:
+        #   bottom edge at y = _tA_cy - m       (margin from base)
+        #   right  edge at x = _tB_cx - m       (margin from right side)
+        #   upper-left corner distance to hypotenuse = m
+        # Hypotenuse from A(ax,ay) to C(cx,cy): normal = (dy, -dx)/len
+        _hyp_dx = _tC_cx - _tA_cx
+        _hyp_dy = _tC_cy - _tA_cy
+        _hyp_len = _math.sqrt(_hyp_dx**2 + _hyp_dy**2)
+        # Inward normal pointing into the triangle (toward bottom-right).
+        # Candidate: (-dy, dx)/len;  verify it points toward B.
+        _hyp_nx_raw = -_hyp_dy / _hyp_len
+        _hyp_ny_raw = _hyp_dx / _hyp_len
+        # Dot with (B - A) should be positive if pointing inward
+        _dot = _hyp_nx_raw * (_tB_cx - _tA_cx) + _hyp_ny_raw * (_tB_cy - _tA_cy)
+        if _dot < 0:
+            _hyp_nx_raw, _hyp_ny_raw = -_hyp_nx_raw, -_hyp_ny_raw
+        _hyp_nx = _hyp_nx_raw
+        _hyp_ny = _hyp_ny_raw
+
+        # Box right edge at x = _tB_cx - m  →  box_left = _tB_cx - m - _pie_w
+        # Box bottom edge at y = _tA_cy - m  →  box_top = _tA_cy - m - _pie_h
+        # Upper-left corner = (box_left, box_top)
+        # Distance from upper-left to hyp line = m:
+        #   (_hyp_nx*(box_left - _tA_cx) + _hyp_ny*(box_top - _tA_cy)) = m
+        # Substituting:
+        #   _hyp_nx*(_tB_cx - m - _pie_w - _tA_cx) + _hyp_ny*(_tA_cy - m - _pie_h - _tA_cy) = m
+        #   _hyp_nx*(_tB_cx - _tA_cx - _pie_w) - _hyp_nx*m + _hyp_ny*(-_pie_h) - _hyp_ny*m = m
+        #   _hyp_nx*(_tB_cx - _tA_cx - _pie_w) - _hyp_ny*_pie_h = m*(1 + _hyp_nx + _hyp_ny)
+        _numer = _hyp_nx * (_tB_cx - _tA_cx - _pie_w) - _hyp_ny * _pie_h
+        _denom = 1.0 + _hyp_nx + _hyp_ny
+        _m = _numer / _denom if abs(_denom) > 0.01 else 10
+
+        _box_right = _tB_cx - _m
+        _box_bottom = _tA_cy - _m
+        _box_left = _box_right - _pie_w
+        _box_top = _box_bottom - _pie_h
+
+        arc_ox = _box_left - _pie_x_min
+        arc_oy = _box_top - _pie_y_min
+
+
 
         # tkinter create_arc uses a bounding box; arc goes CCW from start angle.
         # tk angles: 0° = 3-o'clock (east), positive = CCW.
@@ -1018,8 +1154,10 @@ class ResultsPanel(ttk.Frame):
         # Each board is cut to the stair width
         tread_cut_len = stair_width
 
-        # Stringer lumber length: user-selected or auto (shortest standard >= stringer)
-        sl_ft = cfg.stringer_length / 12.0
+        # Stringer lumber length: use effective board length (accounts for
+        # bottom plumb cut geometry) when available, else model value.
+        eff_len = getattr(self, '_effective_stringer_len', cfg.stringer_length)
+        sl_ft = eff_len / 12.0
         standard_lengths = [8, 10, 12, 14, 16, 18, 20]
         stringer_lumber_ft = self._stringer_lumber_ft
         if stringer_lumber_ft == 0:
@@ -1031,7 +1169,7 @@ class ResultsPanel(ttk.Frame):
                     break
         # How many boards per stringer (if lumber is shorter than stringer)
         lumber_in = stringer_lumber_ft * 12.0
-        boards_per_stringer = _math.ceil(cfg.stringer_length / lumber_in) if lumber_in > 0 else 1
+        boards_per_stringer = _math.ceil(eff_len / lumber_in) if lumber_in > 0 else 1
         total_stringer_boards = stringer_count * boards_per_stringer
 
         # Position: fixed upper-left corner of the canvas
@@ -1072,7 +1210,7 @@ class ResultsPanel(ttk.Frame):
                           fill="#777777", font=("Segoe UI", 8), anchor="nw")
             y += line_h
             # Warning: lumber shorter than stringer
-            short_color = "#CC7700" if lumber_in >= cfg.stringer_length * 0.5 else INVALID_COLOR
+            short_color = "#CC7700" if lumber_in >= eff_len * 0.5 else INVALID_COLOR
             c.create_text(box_x + 8, y,
                           text=f"Joins needed — {stringer_lumber_ft}' < {sl_ft:.1f}' stringer",
                           fill=short_color, font=("Segoe UI", 8), anchor="nw")
