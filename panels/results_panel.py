@@ -9,7 +9,7 @@ from constants import (
     GROUND_COLOR, OPTIMAL_COLOR, INVALID_COLOR,
     COMFORT_IDEAL_LO, COMFORT_IDEAL_HI, COMFORT_WARN_LO, COMFORT_WARN_HI,
     ANGLE_IDEAL_LO, ANGLE_IDEAL_HI, ANGLE_WARN_LO, ANGLE_WARN_HI,
-    ANCHOR_BOLT_DIAMETER, ANCHOR_MAX_SPACING,
+    ANCHOR_BOLT_DIAMETER,
 )
 from models import StairModel, StepConfig
 
@@ -32,8 +32,7 @@ class ResultsPanel(ttk.Frame):
         self._nosing_overhang: float = 0.75
         self._stringer_lumber_ft: int = 0  # 0 = auto
         self._bottom_plumb_cut: bool = False
-        self._show_anchors: bool = False
-        self._support_count: int = 2
+        self._support_every_n: int = 3
         self._steps_range = (2, 50, [])  # (n_lo, n_hi, valid_ns)
         self._hover_data: dict = {}  # tag -> tooltip text string
         self._tooltip_id = None  # canvas item id of active tooltip
@@ -85,8 +84,8 @@ class ResultsPanel(ttk.Frame):
         row1_defs = [
             ("stringer", "Stringer Length:"),
             ("stringer_ft", "(feet):"),
-            ("supports",  "Intermediate Supports:"),
-            ("spacing",   "Support Spacing:"),
+            ("supports",  "Support Uprights:"),
+            ("bolts",     "Through Bolts:"),
         ]
         for col, (key, lbl) in enumerate(row1_defs):
             ttk.Label(stats, text=lbl, font=("Segoe UI", 8, "bold")).grid(
@@ -108,20 +107,18 @@ class ResultsPanel(ttk.Frame):
                tread_board_width: float = 5.5, tread_board_label: str = "",
                tread_board_gap: float = 0.25, nosing_overhang: float = 0.75,
                stringer_lumber_ft: int = 0, bottom_plumb_cut: bool = False,
-               show_anchors: bool = False, anchor_end_margin: float = 12.0,
-               anchor_debug: bool = False, support_count: int = 2):
+               anchor_debug: bool = False,
+               support_every_n: int = 3):
         self._model      = model
         self._stringer_count = stringer_count
         self._stair_width = stair_width
-        self._support_count = max(2, support_count)
+        self._support_every_n = max(1, support_every_n)
         self._tread_board_width = tread_board_width
         self._tread_board_label = tread_board_label
         self._tread_board_gap = tread_board_gap
         self._nosing_overhang = nosing_overhang
         self._stringer_lumber_ft = stringer_lumber_ft
         self._bottom_plumb_cut = bottom_plumb_cut
-        self._show_anchors = show_anchors
-        self._anchor_end_margin = anchor_end_margin
         self._anchor_debug = anchor_debug
         self._all_configs = model.compute_configs()
         valid_ns = [c.n_risers for c in self._all_configs if c.is_valid]
@@ -284,10 +281,12 @@ class ResultsPanel(ttk.Frame):
         sl_ft = sl_in / 12.0
         self._stat_vars["stringer"].set(f"{sl_in:.2f}\"")
         self._stat_vars["stringer_ft"].set(f"{sl_ft:.2f} ft")
-        n_supports = self._support_count
-        spacing = sl_in / n_supports
-        self._stat_vars["supports"].set(str(n_supports))
-        self._stat_vars["spacing"].set(f"{spacing / 12:.2f} ft o.c.")
+        n_risers = cfg.n_risers
+        n_treads = n_risers - 1
+        support_steps = list(range(self._support_every_n, n_treads, self._support_every_n))
+        n_supports = len(support_steps)
+        self._stat_vars["supports"].set(f"{n_supports} (every {self._support_every_n} steps)")
+        self._stat_vars["bolts"].set(f"{n_supports}")
 
         if cfg.is_valid:
             opt = self._model.optimal_config() if self._model else None
@@ -703,24 +702,13 @@ class ResultsPanel(ttk.Frame):
 
         # (stringer length label moved to the dimension line below the board)
 
-        # Support posts: one always at the top (highest point), one at the
-        # bottom (bearing point already drawn), remaining N-2 evenly spaced.
-        n_supports = self._support_count
-        p0x = P0_phys[0]                    # stringer bottom-end x
-        p1x = total_run                     # stringer top-end x
+        # Support posts: placed at every Nth step position along the stair.
         POST_W_IN = 3.5                     # actual 4×4 post width (inches)
         half_post = POST_W_IN / 2.0
-        # Build list of fractional positions along horizontal span.
-        # Position 1.0 = top (always present).
-        # The remaining N-1 supports are evenly distributed along the span.
-        n_distributed = n_supports - 1
-        support_fracs = []
-        for i in range(1, n_distributed + 1):
-            support_fracs.append(i / (n_distributed + 1))
-        support_fracs.append(1.0)  # top support always last
-        for si, frac in enumerate(support_fracs):
-            sup_phys_x = p0x + frac * (p1x - p0x)
-            # Top of post: where stringer bottom face is at this x.
+        n_treads = n - 1
+        support_step_indices = list(range(self._support_every_n, n_treads, self._support_every_n))
+        for si, step_i in enumerate(support_step_indices):
+            sup_phys_x = step_i * tread + tread / 2
             sup_top_face_y = sup_phys_x * (stringer_top_y / total_run)
             sup_bot_face_y = sup_top_face_y - BW_div_cos
             sup_post_top_y = sup_bot_face_y + 0.75 * BW_div_cos
@@ -744,14 +732,55 @@ class ResultsPanel(ttk.Frame):
         def _cross(dist_in):
             return -dist_in * sin_a * scale, -dist_in * cos_a * scale
 
-        if self._show_anchors:
+        # ── Board join computation (used by anchors, join markers, materials) ──
+        # Resolve lumber length and compute board segment edges with
+        # joins snapped to nearest riser base for structural integrity.
+        lumber_length_ft = self._stringer_lumber_ft
+        if lumber_length_ft == 0:
+            _standard_lengths = [8, 10, 12, 14, 16, 18, 20]
+            lumber_length_ft = _standard_lengths[-1]
+            for length_ft in _standard_lengths:
+                if length_ft >= stringer_len_in / 12.0:
+                    lumber_length_ft = length_ft
+                    break
+        lumber_length_in = lumber_length_ft * 12.0
+
+        step_slope = _math.hypot(tread, riser)
+        riser_bases_from_board_start = []
+        for i in range(n):
+            pos = _p0_offset + i * step_slope
+            if 0 < pos < stringer_len_in:
+                riser_bases_from_board_start.append(pos)
+
+        board_slope_edges = [0.0]
+        if lumber_length_in > 0 and lumber_length_in < stringer_len_in:
+            num_boards = _math.ceil(stringer_len_in / lumber_length_in)
+            used_snaps = set()
+            for board_index in range(1, num_boards):
+                raw_join = board_index * lumber_length_in
+                best = None
+                best_dist = float('inf')
+                for rb in riser_bases_from_board_start:
+                    d = abs(rb - raw_join)
+                    if d < best_dist and rb not in used_snaps:
+                        best_dist = d
+                        best = rb
+                if best is not None:
+                    used_snaps.add(best)
+                    join_from_p0 = best - _p0_offset
+                    if 0 < join_from_p0 < top_face_len:
+                        board_slope_edges.append(join_from_p0)
+        board_slope_edges.append(top_face_len)
+        self._board_slope_edges = board_slope_edges
+        self._lumber_length_ft = lumber_length_ft
+        self._stringer_len_in = stringer_len_in
+
+        # ── Through-bolt markers at support positions ─────────────────
+        if True:
             ANCHOR_COLOR = "#2255AA"
             BOLT_VISUAL_RADIUS = max(1.5, ANCHOR_BOLT_DIAMETER * 4)
             bolt_visual_radius_px = BOLT_VISUAL_RADIUS * scale
-            BOLT_DEPTH_FRACTION = 0.75  # 75% from top face toward bottom face
-            # Perpendicular direction from top face INTO the board (toward bottom face)
-            # In physical coords: top face runs along (cos_a, sin_a),
-            # perpendicular inward = (sin_a, -cos_a)
+            BOLT_DEPTH_FRACTION = 0.75
             perp_into_board_x = sin_a
             perp_into_board_y = -cos_a
             bolt_perp_depth = BOLT_DEPTH_FRACTION * BOARD_W_IN
@@ -766,82 +795,39 @@ class ResultsPanel(ttk.Frame):
                 bolt_phys_y = top_face_phys_y - BOLT_DEPTH_FRACTION * BOARD_W_IN
                 return px(bolt_phys_x, bolt_phys_y)
 
-            # 1. Resolve lumber length to find board joins
-            lumber_length_ft = self._stringer_lumber_ft
-            if lumber_length_ft == 0:
-                standard_lengths = [8, 10, 12, 14, 16, 18, 20]
-                lumber_length_ft = standard_lengths[-1]
-                for length_ft in standard_lengths:
-                    if length_ft >= stringer_len_in / 12.0:
-                        lumber_length_ft = length_ft
-                        break
-            lumber_length_in = lumber_length_ft * 12.0
-
-            # 2. Board segment edges along the TOP FACE slope (inches from P0)
-            #    Joins at multiples of lumber_length from board start,
-            #    minus _p0_offset to get slope distance from P0.
-            board_slope_edges = [0.0]
-            if lumber_length_in > 0 and lumber_length_in < stringer_len_in:
-                num_boards = _math.ceil(stringer_len_in / lumber_length_in)
-                for board_index in range(1, num_boards):
-                    join_slope = board_index * lumber_length_in - _p0_offset
-                    if 0 < join_slope < top_face_len:
-                        board_slope_edges.append(join_slope)
-            board_slope_edges.append(top_face_len)
-
-            # 3. For each board segment:
-            #    - Take cos(angle) of its slope length = horizontal planning length
-            #    - Subtract margins from that
-            #    - Compute bolt count from usable horizontal / max spacing
-            #    - Space bolts evenly along the SLOPE (not horizontal)
-            end_margin = self._anchor_end_margin
+            # Place a through-bolt at every Nth step position along the
+            # stringer.  Each bolt sits at the step's riser-base on the
+            # top face, expressed as a slope distance from P0.
+            step_slope = _math.hypot(tread, riser)
+            n_treads_bolt = n - 1
+            bolt_step_indices = list(range(self._support_every_n, n_treads_bolt, self._support_every_n))
             all_bolt_slope_positions = []
-            # For each bolt: (slope_pos, segment_start, segment_end)
             all_bolt_segment_info = []
-            for segment_index in range(len(board_slope_edges) - 1):
-                segment_slope_start = board_slope_edges[segment_index]
-                segment_slope_end = board_slope_edges[segment_index + 1]
-                segment_slope_length = segment_slope_end - segment_slope_start
-                segment_horizontal_length = segment_slope_length * cos_a
-                usable_horizontal = segment_horizontal_length - 2 * end_margin
-                if usable_horizontal <= 0:
-                    mid = segment_slope_start + segment_slope_length / 2
-                    all_bolt_slope_positions.append(mid)
-                    all_bolt_segment_info.append(
-                        (mid, segment_slope_start, segment_slope_end))
+            for step_i in bolt_step_indices:
+                mid_tread_x = step_i * tread + tread / 2
+                pos = (mid_tread_x - P0_phys[0]) / cos_a
+                if pos < 0 or pos > top_face_len:
                     continue
-                bolt_count = max(2, _math.ceil(usable_horizontal / ANCHOR_MAX_SPACING) + 1)
-                # Convert margin back to slope distance for placement
-                slope_margin = end_margin / cos_a
-                usable_slope = segment_slope_length - 2 * slope_margin
-                bolt_slope_spacing = usable_slope / (bolt_count - 1)
-                for bolt_index in range(bolt_count):
-                    pos = segment_slope_start + slope_margin + bolt_index * bolt_slope_spacing
-                    all_bolt_slope_positions.append(pos)
-                    all_bolt_segment_info.append(
-                        (pos, segment_slope_start, segment_slope_end))
+                # Find which board segment this bolt falls in
+                seg_start = board_slope_edges[0]
+                seg_end = board_slope_edges[-1]
+                for seg_idx in range(len(board_slope_edges) - 1):
+                    if board_slope_edges[seg_idx] <= pos <= board_slope_edges[seg_idx + 1]:
+                        seg_start = board_slope_edges[seg_idx]
+                        seg_end = board_slope_edges[seg_idx + 1]
+                        break
+                all_bolt_slope_positions.append(pos)
+                all_bolt_segment_info.append((pos, seg_start, seg_end))
 
             self._anchor_count = len(all_bolt_slope_positions)
-            # Alias for dimension line code
-            all_bolt_horizontal_positions = all_bolt_slope_positions
 
-            # Debug guide lines: green = board edges, red = margins, blue = bolt X
+            # Debug guide lines: green = board edges, blue = bolt X
             if self._anchor_debug:
                 for edge_slope in board_slope_edges:
                     edge_phys_x = P0_phys[0] + edge_slope * cos_a
                     edge_canvas_x = px(edge_phys_x, 0)[0]
                     c.create_line(edge_canvas_x, 0, edge_canvas_x, 2000,
                                   fill="green", width=1, dash=(2, 2))
-                for segment_index in range(len(board_slope_edges) - 1):
-                    seg_start = board_slope_edges[segment_index]
-                    seg_end = board_slope_edges[segment_index + 1]
-                    seg_slope_len = seg_end - seg_start
-                    slope_margin = min(end_margin / cos_a, seg_slope_len / 2)
-                    for margin_slope in [seg_start + slope_margin, seg_end - slope_margin]:
-                        margin_phys_x = P0_phys[0] + margin_slope * cos_a
-                        margin_canvas_x = px(margin_phys_x, 0)[0]
-                        c.create_line(margin_canvas_x, 0, margin_canvas_x, 2000,
-                                      fill="red", width=1, dash=(4, 4))
                 for bolt_slope in all_bolt_slope_positions:
                     bolt_phys_x = P0_phys[0] + bolt_slope * cos_a
                     bolt_canvas_x = px(bolt_phys_x, 0)[0]
@@ -850,7 +836,7 @@ class ResultsPanel(ttk.Frame):
 
             # 5. Draw each bolt at its slope distance projected onto the top face
             DIM_COLOR = "#DD4400"
-            for bolt_number, bolt_distance in enumerate(all_bolt_horizontal_positions):
+            for bolt_number, bolt_distance in enumerate(all_bolt_slope_positions):
                 bolt_x, bolt_y = bolt_canvas_position(bolt_distance)
                 bolt_tag = f"bolt_{bolt_number}"
                 c.create_oval(
@@ -962,13 +948,13 @@ class ResultsPanel(ttk.Frame):
 
             # Spacing dimension between first two bolts:
             # short arrow leads on each side of a centered label
-            if len(all_bolt_horizontal_positions) >= 2:
-                first_bolt_spacing = (all_bolt_horizontal_positions[1]
-                                      - all_bolt_horizontal_positions[0])
+            if len(all_bolt_slope_positions) >= 2:
+                first_bolt_spacing = (all_bolt_slope_positions[1]
+                                      - all_bolt_slope_positions[0])
                 first_bolt_x, first_bolt_y = bolt_canvas_position(
-                    all_bolt_horizontal_positions[0])
+                    all_bolt_slope_positions[0])
                 second_bolt_x, second_bolt_y = bolt_canvas_position(
-                    all_bolt_horizontal_positions[1])
+                    all_bolt_slope_positions[1])
                 spacing_label_x = (first_bolt_x + second_bolt_x) / 2
                 spacing_label_y = (first_bolt_y + second_bolt_y) / 2
                 # Leave a gap around the label for the text; short leads fill the rest
@@ -997,8 +983,6 @@ class ResultsPanel(ttk.Frame):
                               text=f"{first_bolt_spacing:.1f}\" o.c.",
                               fill=ANCHOR_COLOR, font=("Segoe UI", 9),
                               anchor="center", angle=_math.degrees(angle), tags="dim")
-        else:
-            self._anchor_count = 0
 
         # ── Board end markers (dashed perpendicular lines) ──────────
         # Draw at the physical start and end of the board (before cuts).
@@ -1016,56 +1000,31 @@ class ResultsPanel(ttk.Frame):
                           fill="#CC0000", width=2, dash=(6, 3))
 
         # ── Board join markers ────────────────────────────────────────
-        # If the lumber is shorter than the stringer, draw perpendicular
-        # lines across the board at each join location (every lumber_in
-        # along the stringer from the bottom end).
-        lumber_ft_val = self._stringer_lumber_ft
-        if lumber_ft_val == 0:
-            # Auto: pick shortest standard length
-            _std = [8, 10, 12, 14, 16, 18, 20]
-            lumber_ft_val = _std[-1]
-            for _sl in _std:
-                if _sl >= stringer_len_in / 12.0:
-                    lumber_ft_val = _sl
-                    break
-        lumber_in = lumber_ft_val * 12.0
-        if lumber_in > 0 and lumber_in < stringer_len_in:
+        # Reuse snapped join positions from self._board_slope_edges
+        # (computed in the anchor section above; edges are P0-relative).
+        edges = getattr(self, '_board_slope_edges', [0.0, top_face_len])
+        join_positions = edges[1:-1]  # interior edges are the joins
+
+        if join_positions:
             import math as _math
             JOIN_COLOR = "#CC0000"
-            OVERHANG = 8.0  # inches beyond board edges for visibility
-            n_joins = _math.ceil(stringer_len_in / lumber_in) - 1
-            # Canvas-space perpendicular to the stringer direction.
-            # along direction in canvas = (cos_a, -sin_a) (un-scaled).
-            # True perpendicular in canvas (rotated 90° CW) = (-(-sin_a), cos_a)
-            #   = (sin_a, cos_a) — but we want the one pointing "below" the
-            #   top face (toward the bottom face / ground side), so negate:
-            #   cross_dir = (-sin_a, -cos_a) per unit inch.
-            # We'll scale manually.
+            OVERHANG = 8.0
+
             def cross(dist_in):
                 """Canvas-perpendicular to stringer, +ve = above top face."""
                 return -dist_in * sin_a * scale, -dist_in * cos_a * scale
 
-            for ji in range(1, n_joins + 1):
-                d_in = ji * lumber_in  # distance along board from true start
-                if d_in >= stringer_len_in:
-                    break
-                # Position on the top face: d_in is from the board start,
-                # but the top face begins _p0_offset into the board.
-                d_top = d_in - _p0_offset  # distance along top face from P0
+            for ji, d_top in enumerate(join_positions, 1):
                 along_x, along_y = along(d_top)
                 tf_cx, tf_cy = px(P0_phys[0], P0_phys[1])
                 tf_cx += along_x
                 tf_cy += along_y
-                # Line extends from above the top face to below the bottom face
-                # using true canvas perpendicular direction
                 ja_cx = tf_cx + cross(OVERHANG)[0]
                 ja_cy = tf_cy + cross(OVERHANG)[1]
                 jb_cx = tf_cx + cross(-BOARD_W_IN - OVERHANG)[0]
                 jb_cy = tf_cy + cross(-BOARD_W_IN - OVERHANG)[1]
-                # Draw the join line perpendicular across the board
                 c.create_line(ja_cx, ja_cy, jb_cx, jb_cy,
                               fill=JOIN_COLOR, width=2, dash=(6, 3))
-                # Label below bottom face
                 lbl_cx = tf_cx + cross(-BOARD_W_IN - OVERHANG - 4)[0]
                 lbl_cy = tf_cy + cross(-BOARD_W_IN - OVERHANG - 4)[1]
                 c.create_text(lbl_cx, lbl_cy,
@@ -1074,51 +1033,41 @@ class ResultsPanel(ttk.Frame):
                               anchor="n")
 
             # ── Per-board segment dimensions along top face ──────────
-            # Build list of breakpoints along the stringer (inches from bottom end)
-            breaks = [0.0]
-            for ji in range(1, n_joins + 1):
-                d = ji * lumber_in
-                if d < stringer_len_in:
-                    breaks.append(d)
-            breaks.append(stringer_len_in)
+            # Convert edges from P0-relative to board-start-relative so
+            # the first board includes the portion before P0 (plumb cut)
+            # and the last board extends to the physical board end.
+            breaks_from_p0 = list(edges)
+            breaks_from_p0[0] = -_p0_offset             # board physical start
+            breaks_from_p0[-1] = stringer_len_in - _p0_offset  # board physical end
 
             BD_COLOR = "#995522"
-            # Offset perpendicular above top face (toward steps, same
-            # side as the main top-face dim but further out)
             bd_gap = sdim_gap + 18
 
-            for si in range(len(breaks) - 1):
-                d0 = breaks[si]
-                d1 = breaks[si + 1]
-                seg_len = d1 - d0
+            for si in range(len(breaks_from_p0) - 1):
+                d0_p0 = breaks_from_p0[si]      # P0-relative slope pos
+                d1_p0 = breaks_from_p0[si + 1]
+                seg_len = d1_p0 - d0_p0
 
-                # Endpoints on top face (offset from board start to top face)
-                a0x, a0y = along(d0 - _p0_offset)
-                a1x, a1y = along(d1 - _p0_offset)
+                a0x, a0y = along(d0_p0)
+                a1x, a1y = along(d1_p0)
                 base_x, base_y = px(P0_phys[0], P0_phys[1])
                 t0x = base_x + a0x
                 t0y = base_y + a0y
                 t1x = base_x + a1x
                 t1y = base_y + a1y
 
-                # Dim line at original axis-aligned position (straight up)
                 s0y = t0y - bd_gap
                 s1y = t1y - bd_gap
-                # Perpendicular extension lines from top face to dim line
                 _bt0_bd = -bd_gap / _perp_y
                 s0x = t0x + _bt0_bd * _perp_x
                 _bt1_bd = -bd_gap / _perp_y
                 s1x = t1x + _bt1_bd * _perp_x
 
-                # Tick marks from top face to dim line (perpendicular)
                 c.create_line(t0x, t0y, s0x, s0y, fill=BD_COLOR, width=1, tags="dim")
                 c.create_line(t1x, t1y, s1x, s1y, fill=BD_COLOR, width=1, tags="dim")
-
-                # Dimension line with arrows
                 c.create_line(s0x, s0y, s1x, s1y,
                               arrow=tk.BOTH, fill=BD_COLOR, width=1, tags="dim")
 
-                # Label at midpoint, above the dim line
                 mx = (s0x + s1x) / 2
                 my = (s0y + s1y) / 2
                 seg_ft = seg_len / 12.0
@@ -1440,15 +1389,29 @@ class ResultsPanel(ttk.Frame):
         standard_lengths = [8, 10, 12, 14, 16, 18, 20]
         stringer_lumber_ft = self._stringer_lumber_ft
         if stringer_lumber_ft == 0:
-            # Auto: pick shortest standard length that fits
             stringer_lumber_ft = standard_lengths[-1]
             for slen in standard_lengths:
                 if slen >= sl_ft:
                     stringer_lumber_ft = slen
                     break
-        # How many boards per stringer (if lumber is shorter than stringer)
         lumber_in = stringer_lumber_ft * 12.0
-        boards_per_stringer = _math.ceil(eff_len / lumber_in) if lumber_in > 0 else 1
+
+        # Compute per-board segment lengths from snapped edges.
+        # Edges are P0-relative slope distances; convert to board-start-
+        # relative by adding _p0_offset so the first/last segments include
+        # the plumb cut overhang.
+        edges = getattr(self, '_board_slope_edges', [0.0, eff_len])
+        stringer_len_stored = getattr(self, '_stringer_len_in', eff_len)
+        # _p0_offset = stringer_len_in - top_face_len (edges[-1] is top_face_len)
+        _p0_off = stringer_len_stored - edges[-1]
+        breaks = [e + _p0_off for e in edges]
+        # Ensure first break starts at 0 and last at stringer_len
+        breaks[0] = 0.0
+        breaks[-1] = stringer_len_stored
+        segment_lengths = []
+        for i in range(len(breaks) - 1):
+            segment_lengths.append(breaks[i + 1] - breaks[i])
+        boards_per_stringer = len(segment_lengths) if segment_lengths else 1
         total_stringer_boards = stringer_count * boards_per_stringer
 
         # Position: fixed upper-left corner of the canvas
@@ -1480,19 +1443,22 @@ class ResultsPanel(ttk.Frame):
                           fill=body_color, font=body_font, anchor="nw")
             y += line_h
         else:
+            # List each segment's required cut length and minimum lumber size
+            for si, seg_len in enumerate(segment_lengths):
+                seg_ft = seg_len / 12.0
+                # Find shortest standard lumber that covers this segment
+                min_lumber_ft = standard_lengths[-1]
+                for slen in standard_lengths:
+                    if slen >= seg_ft:
+                        min_lumber_ft = slen
+                        break
+                c.create_text(box_x + 8, y,
+                              text=f"{stringer_count}x  2x12 x {min_lumber_ft}' — board {si+1} ({seg_len:.1f}\" cut)",
+                              fill=body_color, font=body_font, anchor="nw")
+                y += line_h
             c.create_text(box_x + 8, y,
-                          text=f"{total_stringer_boards}x  2x12 x {stringer_lumber_ft}'{auto_tag}",
-                          fill=body_color, font=body_font, anchor="nw")
-            y += line_h
-            c.create_text(box_x + 8, y,
-                          text=f"({boards_per_stringer} boards/stringer x {stringer_count} stringers)",
+                          text=f"Joins at riser bases — {boards_per_stringer} boards/stringer",
                           fill="#777777", font=("Segoe UI", 8), anchor="nw")
-            y += line_h
-            # Warning: lumber shorter than stringer
-            short_color = "#CC7700" if lumber_in >= eff_len * 0.5 else INVALID_COLOR
-            c.create_text(box_x + 8, y,
-                          text=f"Joins needed — {stringer_lumber_ft}' < {sl_ft:.1f}' stringer",
-                          fill=short_color, font=("Segoe UI", 8), anchor="nw")
             y += line_h
 
         # Treads
@@ -1577,20 +1543,16 @@ class ResultsPanel(ttk.Frame):
                           fill=throat_color, font=body_font, anchor="nw")
             y += line_h
 
-        # --- Wall-mount anchor bolts ---
+        # --- Wall-mount through bolts ---
         anchor_count = getattr(self, '_anchor_count', 0)
         if anchor_count > 0:
             y += 4
             c.create_line(box_x, y - 2, box_x + 180, y - 2,
                           fill="#AAAAAA", width=1)
-            c.create_text(box_x, y, text="Wall-Mount Anchors:",
+            c.create_text(box_x, y, text="Through Bolts:",
                           fill=hdr_color, font=("Segoe UI", 9, "bold"), anchor="nw")
             y += line_h
             bolt_dia_frac = f'{ANCHOR_BOLT_DIAMETER:.0f}"' if ANCHOR_BOLT_DIAMETER >= 1 else f'1/2"'
             c.create_text(box_x + 8, y,
-                          text=f"{anchor_count}x  {bolt_dia_frac} lag bolt into stud",
+                          text=f"{anchor_count}x  {bolt_dia_frac} through bolt at supports",
                           fill=body_color, font=body_font, anchor="nw")
-            y += line_h
-            c.create_text(box_x + 8, y,
-                          text=f"Max {ANCHOR_MAX_SPACING:.0f}\" o.c., {self._anchor_end_margin:.0f}\" from ends",
-                          fill="#777777", font=("Segoe UI", 8), anchor="nw")

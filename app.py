@@ -93,10 +93,8 @@ class App:
         nosing_overhang = inputs.pop("nosing_overhang", 0.75)
         stringer_lumber_ft = inputs.pop("stringer_lumber_ft", 0)
         bottom_plumb_cut = inputs.pop("bottom_plumb_cut", False)
-        show_anchors = inputs.pop("show_anchors", False)
-        anchor_end_margin = inputs.pop("anchor_end_margin", 12.0)
         anchor_debug = inputs.pop("anchor_debug", False)
-        support_count = inputs.pop("support_count", 2)
+        support_every_n = inputs.pop("support_every_n", 3)
 
         # Read step count from input panel spinbox (may be None on first run)
         spinbox_risers = self.input_panel.get_selected_steps()
@@ -117,8 +115,7 @@ class App:
                                   tread_board_width, tread_board_label,
                                   tread_board_gap, nosing_overhang,
                                   stringer_lumber_ft, bottom_plumb_cut,
-                                  show_anchors, anchor_end_margin,
-                                  anchor_debug, support_count)
+                                  anchor_debug, support_every_n)
 
         # Push resolved range info back to the input panel spinbox
         self._selected_risers = self.results_panel._selected_risers

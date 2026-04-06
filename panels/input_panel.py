@@ -9,9 +9,9 @@ from constants import (
     DEFAULT_STRINGER_COUNT, DEFAULT_STAIR_WIDTH,
     DEFAULT_TREAD_BOARD_WIDTH, TREAD_BOARD_OPTIONS,
     DEFAULT_TREAD_BOARD_GAP, DEFAULT_NOSING_OVERHANG,
-    DEFAULT_SUPPORT_COUNT,
+    DEFAULT_SUPPORT_EVERY_N,
     DEFAULT_STRINGER_LUMBER_FT, STRINGER_LUMBER_OPTIONS,
-    DEFAULT_BOTTOM_PLUMB_CUT, DEFAULT_SHOW_ANCHORS, DEFAULT_ANCHOR_END_MARGIN, DEFAULT_ANCHOR_DEBUG,
+    DEFAULT_BOTTOM_PLUMB_CUT, DEFAULT_ANCHOR_DEBUG,
     COMFORT_IDEAL_LO, COMFORT_IDEAL_HI, COMFORT_WARN_LO, COMFORT_WARN_HI,
 )
 from widgets.labeled_slider import LabeledSlider
@@ -29,11 +29,9 @@ _DEFAULTS = {
     "tread_board_width": DEFAULT_TREAD_BOARD_WIDTH,
     "tread_board_gap":  DEFAULT_TREAD_BOARD_GAP,
     "nosing_overhang":  DEFAULT_NOSING_OVERHANG,
-    "support_count":    DEFAULT_SUPPORT_COUNT,
+    "support_every_n":  DEFAULT_SUPPORT_EVERY_N,
     "stringer_lumber_ft": DEFAULT_STRINGER_LUMBER_FT,
     "bottom_plumb_cut": DEFAULT_BOTTOM_PLUMB_CUT,
-    "show_anchors": DEFAULT_SHOW_ANCHORS,
-    "anchor_end_margin": DEFAULT_ANCHOR_END_MARGIN,
     "anchor_debug": DEFAULT_ANCHOR_DEBUG,
 }
 
@@ -213,16 +211,19 @@ class InputPanel(ttk.LabelFrame):
         self._stringer_lumber_combo.grid(row=5, column=1, sticky="w", padx=(4, 0), pady=(2, 0))
         self._stringer_lumber_combo.bind("<<ComboboxSelected>>", lambda _: self._changed())
 
-        # Support count
-        ttk.Label(cons_frame, text="Supports:", font=("Segoe UI", 9, "bold")).grid(
+        # Support upright every Nth step
+        ttk.Label(cons_frame, text="Support Every:", font=("Segoe UI", 9, "bold")).grid(
             row=6, column=0, sticky="w", pady=(2, 0))
-        self._support_count_var = tk.StringVar(value=str(iv["support_count"]))
-        self._support_count_spin = ttk.Spinbox(
-            cons_frame, textvariable=self._support_count_var,
-            from_=2, to=20, width=5, command=self._changed)
-        self._support_count_spin.grid(row=6, column=1, sticky="w", padx=(4, 0), pady=(2, 0))
-        self._support_count_spin.bind("<Return>", lambda _: self._changed())
-        self._support_count_spin.bind("<FocusOut>", lambda _: self._changed())
+        support_row = ttk.Frame(cons_frame)
+        support_row.grid(row=6, column=1, sticky="w", padx=(4, 0), pady=(2, 0))
+        self._support_every_n_var = tk.StringVar(value=str(iv["support_every_n"]))
+        self._support_every_n_spin = ttk.Spinbox(
+            support_row, textvariable=self._support_every_n_var,
+            from_=1, to=20, width=4, command=self._changed)
+        self._support_every_n_spin.pack(side="left")
+        ttk.Label(support_row, text="steps", foreground="#555555").pack(side="left", padx=(2, 0))
+        self._support_every_n_spin.bind("<Return>", lambda _: self._changed())
+        self._support_every_n_spin.bind("<FocusOut>", lambda _: self._changed())
 
         # Bottom plumb cut checkbox
         self._bottom_plumb_cut_var = tk.BooleanVar(value=iv["bottom_plumb_cut"])
@@ -232,33 +233,12 @@ class InputPanel(ttk.LabelFrame):
         self._bottom_plumb_cut_cb.grid(row=7, column=0, columnspan=2,
                                         sticky="w", pady=(2, 0))
 
-        # Show wall-mount anchor bolts checkbox
-        self._show_anchors_var = tk.BooleanVar(value=iv["show_anchors"])
-        self._show_anchors_cb = ttk.Checkbutton(
-            cons_frame, text="Wall-mount anchors",
-            variable=self._show_anchors_var, command=self._changed)
-        self._show_anchors_cb.grid(row=8, column=0, columnspan=2,
-                                    sticky="w", pady=(2, 0))
-
-        # Anchor bolt end margin
-        ttk.Label(cons_frame, text="Bolt End Margin:", font=("Segoe UI", 9, "bold")).grid(
-            row=9, column=0, sticky="w", pady=(2, 0))
-        margin_frame = ttk.Frame(cons_frame)
-        margin_frame.grid(row=9, column=1, sticky="w", padx=(4, 0), pady=(2, 0))
-        self._anchor_margin_var = tk.StringVar(value=f"{iv['anchor_end_margin']:.1f}")
-        self._anchor_margin_entry = ttk.Entry(
-            margin_frame, textvariable=self._anchor_margin_var, width=6, justify="right")
-        self._anchor_margin_entry.pack(side="left")
-        ttk.Label(margin_frame, text="in", foreground="#555555").pack(side="left", padx=(2, 0))
-        self._anchor_margin_entry.bind("<Return>", lambda _: self._changed())
-        self._anchor_margin_entry.bind("<FocusOut>", lambda _: self._changed())
-
         # Anchor debug guide lines checkbox
         self._anchor_debug_var = tk.BooleanVar(value=iv["anchor_debug"])
         self._anchor_debug_cb = ttk.Checkbutton(
             cons_frame, text="Anchor debug lines",
             variable=self._anchor_debug_var, command=self._changed)
-        self._anchor_debug_cb.grid(row=10, column=0, columnspan=2,
+        self._anchor_debug_cb.grid(row=8, column=0, columnspan=2,
                                     sticky="w", pady=(2, 0))
 
         # --- Reset button ---
@@ -350,13 +330,6 @@ class InputPanel(ttk.LabelFrame):
         self.tread_constraints.set_values(DEFAULT_MIN_TREAD, DEFAULT_MAX_TREAD)
         self._constraint_changed()
 
-    def _get_anchor_margin(self) -> float:
-        try:
-            v = float(self._anchor_margin_var.get())
-            return max(0.0, v)
-        except ValueError:
-            return DEFAULT_ANCHOR_END_MARGIN
-
     def get_inputs(self) -> dict:
         try:
             stringer_count = int(self._stringer_count_var.get())
@@ -389,9 +362,9 @@ class InputPanel(ttk.LabelFrame):
             except ValueError:
                 stringer_lumber_ft = 0
         try:
-            support_count = max(2, int(self._support_count_var.get()))
+            support_every_n = max(1, int(self._support_every_n_var.get()))
         except ValueError:
-            support_count = DEFAULT_SUPPORT_COUNT
+            support_every_n = DEFAULT_SUPPORT_EVERY_N
         return {
             "total_rise":       self.rise_slider.get(),
             "total_run":        self.run_slider.get(),
@@ -405,10 +378,8 @@ class InputPanel(ttk.LabelFrame):
             "tread_board_label": board_label,
             "tread_board_gap": tread_board_gap,
             "nosing_overhang": nosing_overhang,
-            "support_count":     support_count,
+            "support_every_n":  support_every_n,
             "stringer_lumber_ft": stringer_lumber_ft,
             "bottom_plumb_cut": self._bottom_plumb_cut_var.get(),
-            "show_anchors": self._show_anchors_var.get(),
-            "anchor_end_margin": self._get_anchor_margin(),
             "anchor_debug": self._anchor_debug_var.get(),
         }
