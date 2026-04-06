@@ -2,7 +2,7 @@
 
 A desktop stair calculator built with Python and tkinter that computes optimal step configurations from total rise and run dimensions, validated against IBC/IRC building code constraints. Includes a live scaled diagram with full stringer geometry, materials list, and construction details.
 
-![Stair Tool Screenshot](docs/screenshot.png)
+![Stair Tool Screenshot](docs/screenshot.png?v=2)
 
 ---
 
