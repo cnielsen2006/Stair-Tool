@@ -758,6 +758,11 @@ class ResultsPanel(ttk.Frame):
         #   2. Divide usable length by max spacing → bolt count
         #   3. Distribute bolts evenly across usable length
         # Y-axis: 75% from top face toward bottom face (bulk of wood above bolt)
+        # Perpendicular-to-board helper (same direction as join markers).
+        # cross(+d) = above top face, cross(-d) = into board.
+        def _cross(dist_in):
+            return -dist_in * sin_a * scale, -dist_in * cos_a * scale
+
         if self._show_anchors:
             ANCHOR_COLOR = "#2255AA"
             BOLT_VISUAL_RADIUS = max(1.5, ANCHOR_BOLT_DIAMETER * 4)
@@ -905,23 +910,28 @@ class ResultsPanel(ttk.Frame):
                     near_edge = board_end_slope
                 _ad = _math.degrees(angle)
                 _bx, _by = bolt_x, bolt_y
-                # Arrow endpoint: top-face point at near_edge, shifted
-                # perpendicular into the board to bolt depth.
-                ne_tf_x = P0_phys[0] + near_edge * cos_a
-                ne_tf_y = P0_phys[1] + near_edge * sin_a
-                _ne_cx, _ne_cy = px(
-                    ne_tf_x + offset_from_top * sin_a,
-                    ne_tf_y - offset_from_top * cos_a)
+                # Arrow endpoint: board-end perpendicular at bolt depth.
+                # From top-face point at near_edge, go into board using
+                # cross() direction (same as join markers).
+                # The bolt's perpendicular depth from the top face =
+                # vertical_drop * cos(angle).
+                perp_depth = offset_from_top * cos_a
+                ne_tf_cx, ne_tf_cy = px(
+                    P0_phys[0] + near_edge * cos_a,
+                    P0_phys[1] + near_edge * sin_a)
+                cd = _cross(-perp_depth)
+                _ne_cx = ne_tf_cx + cd[0]
+                _ne_cy = ne_tf_cy + cd[1]
                 _end_d = offset_from_near_end
-                _top_d = offset_from_top
-                # Side inset arrow: perpendicular to board, touching bolt.
-                # Bolt physical pos = (bolt_tf_x, bolt_tf_y - offset_from_top)
-                # Point on top face perp-above bolt in board coords:
-                #   bolt_phys + offset_from_top * (-sin_a, cos_a)
+                # Side inset arrow: perpendicular to board, from bolt to top face.
+                # Bolt is dropped vertically by offset_from_top from top face,
+                # so perpendicular distance to top face = offset_from_top * cos(angle).
+                _top_d = offset_from_top * cos_a
                 _bolt_phys_x = P0_phys[0] + bolt_distance * cos_a
                 _bolt_phys_y = P0_phys[1] + bolt_distance * sin_a - offset_from_top
-                _perp_top_x = _bolt_phys_x - offset_from_top * sin_a
-                _perp_top_y = _bolt_phys_y + offset_from_top * cos_a
+                # Point on top face perpendicularly above bolt:
+                _perp_top_x = _bolt_phys_x - _top_d * sin_a
+                _perp_top_y = _bolt_phys_y + _top_d * cos_a
                 _pt_cx, _pt_cy = px(_perp_top_x, _perp_top_y)
                 def _make_hover(_lbl, _end_d, _top_d,
                                 _bx, _by, _necx, _necy,
@@ -1009,20 +1019,20 @@ class ResultsPanel(ttk.Frame):
         else:
             self._anchor_count = 0
 
-        # ── Board end markers (dotted perpendicular lines) ──────────
+        # ── Board end markers (dashed perpendicular lines) ──────────
         # Draw at the physical start and end of the board (before cuts).
-        BOARD_END_COLOR = "#6666AA"
         BOARD_END_OVERHANG = 8.0
+        _p0_cx, _p0_cy = px(P0_phys[0], P0_phys[1])
         for board_end_slope in [-_p0_offset, stringer_len_in - _p0_offset]:
             be_along = along(board_end_slope)
-            be_cx = px(P0_phys[0], P0_phys[1])[0] + be_along[0]
-            be_cy = px(P0_phys[0], P0_phys[1])[1] + be_along[1]
-            be_a_cx = be_cx + perp(BOARD_END_OVERHANG)[0]
-            be_a_cy = be_cy + perp(BOARD_END_OVERHANG)[1]
-            be_b_cx = be_cx + perp(-BOARD_W_IN - BOARD_END_OVERHANG)[0]
-            be_b_cy = be_cy + perp(-BOARD_W_IN - BOARD_END_OVERHANG)[1]
+            be_cx = _p0_cx + be_along[0]
+            be_cy = _p0_cy + be_along[1]
+            be_a_cx = be_cx + _cross(BOARD_END_OVERHANG)[0]
+            be_a_cy = be_cy + _cross(BOARD_END_OVERHANG)[1]
+            be_b_cx = be_cx + _cross(-BOARD_W_IN - BOARD_END_OVERHANG)[0]
+            be_b_cy = be_cy + _cross(-BOARD_W_IN - BOARD_END_OVERHANG)[1]
             c.create_line(be_a_cx, be_a_cy, be_b_cx, be_b_cy,
-                          fill=BOARD_END_COLOR, width=1, dash=(3, 3))
+                          fill="#CC0000", width=2, dash=(6, 3))
 
         # ── Board join markers ────────────────────────────────────────
         # If the lumber is shorter than the stringer, draw perpendicular
