@@ -32,8 +32,17 @@ DEFAULT_STAIR_WIDTH    = 36.0    # inches (IBC min 36")
 DEFAULT_TREAD_BOARD_WIDTH = 5.5  # nominal 1×6 actual width (inches)
 DEFAULT_TREAD_BOARD_GAP = 0.25   # gap between tread boards (inches)
 DEFAULT_NOSING_OVERHANG = 0.75   # acceptable nosing overhang past last board (inches)
+DEFAULT_SUPPORT_COUNT      = 2   # minimum 2: one at bottom, one at top
 DEFAULT_STRINGER_LUMBER_FT = 0   # 0 = auto (pick shortest standard length)
 DEFAULT_BOTTOM_PLUMB_CUT = False # whether to plumb-cut the stringer at the first riser
+DEFAULT_SHOW_ANCHORS = False     # whether to show wall-anchor bolt locations on stringer
+
+# Wall-mount anchor bolt defaults (recommended practice / IRC R311.5)
+ANCHOR_BOLT_DIAMETER = 0.5       # inches (1/2" lag bolt)
+ANCHOR_MAX_SPACING   = 24.0      # inches max between bolts (match 16/24 stud spacing)
+ANCHOR_END_INSET     = 12.0      # inches max from each end of stringer to first bolt (legacy)
+DEFAULT_ANCHOR_END_MARGIN = 12.0 # inches from each board end to first bolt (user-adjustable)
+DEFAULT_ANCHOR_DEBUG = False     # show debug guide lines for anchor bolt placement
 
 # Standard dimensional lumber lengths (feet)
 STRINGER_LUMBER_OPTIONS = [0, 8, 10, 12, 14, 16, 18, 20]  # 0 = auto

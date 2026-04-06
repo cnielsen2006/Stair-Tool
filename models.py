@@ -8,10 +8,6 @@ from constants import (
     IDEAL_RISE, IDEAL_TREAD,
 )
 
-# IBC R507.9.1: stringer max unsupported span is 13'-1" (157") for 2x lumber
-# Practical recommendation: support every 6–8 ft (72–96") for residential
-STRINGER_MAX_SPAN_IN = 96.0   # 8 ft — comfortable residential support spacing
-
 
 @dataclass
 class StepConfig:
@@ -92,16 +88,8 @@ class StairModel:
             stringer_top_y = (n - 1) * riser
             stringer_len = math.sqrt(stringer_top_y ** 2 + self.total_run ** 2)
 
-            # Intermediate supports: how many posts/hangers needed between top and bottom
-            # bearing points, keeping each span ≤ STRINGER_MAX_SPAN_IN
-            n_supports = max(0, math.ceil(stringer_len / STRINGER_MAX_SPAN_IN) - 1)
-            if n_supports > 0:
-                spacing = stringer_len / (n_supports + 1)
-            else:
-                spacing = stringer_len  # no intermediate support needed
-
             configs.append(StepConfig(n, riser, tread, s, valid, rot,
-                                      stringer_len, n_supports, spacing))
+                                      stringer_len))
 
         return configs
 
