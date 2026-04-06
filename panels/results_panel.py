@@ -390,26 +390,7 @@ class ResultsPanel(ttk.Frame):
         points += [tx, ty]
         c.create_line(points, fill=STEP_OUTLINE, width=2, joinstyle="miter")
 
-        # Dimension: riser arrow on first riser
-        rx, ry_bot = px(0, 0)
-        rx, ry_top = px(0, riser)
-        arm_x = rx - 18
-        c.create_line(arm_x, ry_bot, arm_x, ry_top,
-                      arrow=tk.BOTH, fill=LABEL_COLOR, width=1, tags="dim")
-        c.create_text(arm_x - 4, (ry_bot + ry_top) / 2,
-                      text=f"{riser:.2f}\"", fill=LABEL_COLOR,
-                      font=("Segoe UI", 9), anchor="e", tags="dim")
-
-        # Dimension: tread arrow on first tread (if N > 1)
-        if n > 1:
-            tx_left, ty_h = px(0, riser)
-            tx_right, _   = px(tread, riser)
-            arm_y = ty_h + 30
-            c.create_line(tx_left, arm_y, tx_right, arm_y,
-                          arrow=tk.BOTH, fill=LABEL_COLOR, width=1, tags="dim")
-            c.create_text((tx_left + tx_right) / 2, arm_y + 10,
-                          text=f"{tread:.2f}\"", fill=LABEL_COLOR,
-                          font=("Segoe UI", 9), tags="dim")
+        # (First-step riser/tread dimensions removed — shown in step detail circle)
 
         # ── Overall dimensions ─────────────────────────────────────────
         dim_color = "#444455"
@@ -1396,6 +1377,25 @@ class ResultsPanel(ttk.Frame):
         c.create_text((sx0 + sx1) / 2, arr_y + 3 * k,
                       text=f"{tread:.3f}\"", fill=LABEL_COLOR,
                       font=font_dim, anchor="n")
+
+        # Diagonal hypotenuse dimension (lower-left to upper-right)
+        import math as _math
+        hyp = _math.hypot(riser, tread)
+        c.create_line(sx0, sy1, sx1, sy0,
+                      arrow=tk.BOTH, fill=LABEL_COLOR, width=1)
+        # Label centred on the diagonal, offset toward upper-left
+        diag_mx = (sx0 + sx1) / 2
+        diag_my = (sy0 + sy1) / 2
+        # Perpendicular offset (up-left from the line)
+        diag_dx = sx1 - sx0
+        diag_dy = sy0 - sy1  # negative because canvas y is flipped
+        diag_len = _math.hypot(diag_dx, diag_dy) or 1
+        perp_x = diag_dy / diag_len  # perpendicular unit (rotated 90° CCW)
+        perp_y = -diag_dx / diag_len
+        label_off = 8 * k
+        c.create_text(diag_mx + perp_x * label_off, diag_my + perp_y * label_off,
+                      text=f"{hyp:.3f}\"", fill=LABEL_COLOR,
+                      font=font_dim, angle=_math.degrees(_math.atan2(riser, tread)))
 
         # 2R+T label centred between circle top and step top
         c.create_text(cx, (cy - radius + sy0) / 2,

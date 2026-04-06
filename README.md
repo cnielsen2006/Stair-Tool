@@ -38,7 +38,7 @@ A desktop stair calculator built with Python and tkinter that computes optimal s
 ### Live Stair Diagram
 - **Scaled canvas drawing** that redraws on every input change and resizes with the window
 - **Step profile** — filled rectangles with stair-step polyline outline (blue for valid, red tint for out-of-range)
-- **First-riser and first-tread dimension arrows** with inch callouts
+- **First-riser and first-tread dimensions** shown in the step detail circle (not on the main diagram)
 - **Overall rise/run dimension lines** with extension lines and labels
 - **2×12 stringer overlay** — full polygon with wood fill/stipple showing:
   - Top face and bottom face with along-stringer dimension lines (inches and feet)
@@ -50,7 +50,7 @@ A desktop stair calculator built with Python and tkinter that computes optimal s
 - **Stair angle arc indicator** — color-coded pie slice (green=ideal 30°–35°, yellow=warn, red=bad) with degree label and rating text, positioned in the whitespace triangle
 - **Board join markers** — when lumber is shorter than the stringer, red dashed perpendicular lines at each join with per-segment dimension callouts
 - **Intermediate support markers** — orange circles along the stringer when span exceeds 8 ft
-- **Step detail inset** — zoomed single-step view in a circle scaled to the lower-right whitespace triangle (scales with window resize), showing riser/tread dimensions and 2R+T value with proportionally scaled text and arrows
+- **Step detail inset** — zoomed single-step view in a circle scaled to the lower-right whitespace triangle (scales with window resize), showing riser/tread dimensions, diagonal hypotenuse, and 2R+T value with proportionally scaled text and arrows
 - **Materials list** (upper-left) showing:
   - Stringer count, lumber size, and length (with auto-selection note)
   - Tread board count, size, and cut length (with boards-per-tread breakdown)
@@ -65,7 +65,7 @@ A desktop stair calculator built with Python and tkinter that computes optimal s
 
 ### Application Features
 - **Single-instance enforcement** — only one window runs at a time; re-launching brings the existing window to front (Windows mutex)
-- **Settings persistence** — all inputs (dimensions, constraints, construction details, selected step count) saved to `stair_settings.json` and restored on next launch
+- **Settings persistence** — all inputs (dimensions, constraints, construction details, selected step count) and window size/position saved to `stair_settings.json` and restored on next launch
 - **Reset button** — one click back to IBC/IRC defaults (Ctrl+R shortcut)
 - **Bottom plumb cut toggle** — changes stringer bottom geometry between tapered and plumb-cut styles, updating the diagram and board length calculation
 

@@ -28,6 +28,11 @@ class App:
         saved = self._load_settings()
         self._selected_risers: Optional[int] = saved.get("selected_risers") if saved else None
         self._build_ui(saved)
+
+        # Restore window geometry if saved
+        if saved and "window_geometry" in saved:
+            self.root.geometry(saved["window_geometry"])
+
         self._recalculate()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -42,6 +47,7 @@ class App:
         data = self.input_panel.get_inputs()
         if self._selected_risers is not None:
             data["selected_risers"] = self._selected_risers
+        data["window_geometry"] = self.root.geometry()
         try:
             with open(SETTINGS_FILE, "w") as f:
                 json.dump(data, f, indent=2)
