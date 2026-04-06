@@ -1337,8 +1337,12 @@ class ResultsPanel(ttk.Frame):
                 right_ground_cx, right_ground_cy,  # B: right/ground corner
                 bfd_x1, bfd_y1,           # C: bottom-face dim end
             )
-            # Use the inradius but cap to a reasonable range
-            radius = max(40, min(inradius - 4, 90))
+            # Scale circle to ~half the available triangle space
+            tri_xs = [bfd_x0, right_ground_cx, bfd_x1]
+            tri_ys = [bfd_y0, right_ground_cy, bfd_y1]
+            tri_w = max(tri_xs) - min(tri_xs)
+            tri_h = max(tri_ys) - min(tri_ys)
+            radius = max(40, (1/6) * min(tri_w, tri_h))
         else:
             cx = cw - CANVAS_MARGIN - radius - 4
             cy = ch - CANVAS_MARGIN - radius - 4
@@ -1347,54 +1351,56 @@ class ResultsPanel(ttk.Frame):
         c.create_oval(cx - radius, cy - radius, cx + radius, cy + radius,
                       fill="#F0F0F0", outline="#999999", width=1)
 
+        # Scale all internal sizes relative to radius (baseline 75px)
+        k = radius / 75.0
+        font_size = max(6, int(round(9 * k)))
+        font_dim = ("Segoe UI", font_size)
+        font_bold = ("Segoe UI", font_size, "bold")
+
         # Fit the step inside the circle with padding
-        pad = 22          # leave room for dimension arrows + labels
-        draw_w = radius * 2 - pad * 2   # available width for tread
-        draw_h = radius * 2 - pad * 2   # available height for riser
-        # Reserve top slice for the 2R+T label
-        label_reserve = 14
+        pad = 22 * k
+        draw_w = radius * 2 - pad * 2
+        draw_h = radius * 2 - pad * 2
+        label_reserve = 14 * k
         draw_h -= label_reserve
 
         # Scale so both riser and tread fit
         s = min(draw_w / tread, draw_h / riser)
 
-        step_w = tread * s   # pixels for tread
-        step_h = riser * s   # pixels for riser
+        step_w = tread * s
+        step_h = riser * s
 
-        # Position the step L-shape: bottom-left corner of the step
-        # Center the step within the available area (below the label reserve)
+        # Position the step L-shape centred in available area
         avail_cx = cx
         avail_cy = cy + label_reserve / 2
-        sx0 = avail_cx - step_w / 2   # left edge of tread
-        sy1 = avail_cy + step_h / 2   # bottom of riser (lower tread surface)
-        sx1 = sx0 + step_w            # right edge of tread
-        sy0 = sy1 - step_h            # top of riser
+        sx0 = avail_cx - step_w / 2
+        sy1 = avail_cy + step_h / 2
+        sx1 = sx0 + step_w
+        sy0 = sy1 - step_h
 
-        # Draw the L-shaped step profile (filled)
-        # The step: vertical riser on the left, horizontal tread on the bottom
         c.create_rectangle(sx0, sy0, sx1, sy1,
-                           fill=STEP_FILL, outline=STEP_OUTLINE, width=2)
+                           fill=STEP_FILL, outline=STEP_OUTLINE, width=max(1, int(2 * k)))
 
         # Riser dimension arrow (right side)
-        arr_x = sx1 + 8
+        arr_x = sx1 + 8 * k
         c.create_line(arr_x, sy1, arr_x, sy0,
                       arrow=tk.BOTH, fill=LABEL_COLOR, width=1)
-        c.create_text(arr_x + 3, (sy0 + sy1) / 2,
+        c.create_text(arr_x + 3 * k, (sy0 + sy1) / 2,
                       text=f"{riser:.3f}\"", fill=LABEL_COLOR,
-                      font=("Segoe UI", 9), anchor="w")
+                      font=font_dim, anchor="w")
 
         # Tread dimension arrow (below)
-        arr_y = sy1 + 8
+        arr_y = sy1 + 8 * k
         c.create_line(sx0, arr_y, sx1, arr_y,
                       arrow=tk.BOTH, fill=LABEL_COLOR, width=1)
-        c.create_text((sx0 + sx1) / 2, arr_y + 3,
+        c.create_text((sx0 + sx1) / 2, arr_y + 3 * k,
                       text=f"{tread:.3f}\"", fill=LABEL_COLOR,
-                      font=("Segoe UI", 9), anchor="n")
+                      font=font_dim, anchor="n")
 
-        # 2R+T label at the top of the inset
-        c.create_text(cx, cy - radius + 10,
+        # 2R+T label centred between circle top and step top
+        c.create_text(cx, (cy - radius + sy0) / 2,
                       text=f"2R+T = {rot:.2f}\"",
-                      fill="#444455", font=("Segoe UI", 9, "bold"))
+                      fill="#444455", font=font_bold)
 
     # ------------------------------------------------------------------
     # Materials list

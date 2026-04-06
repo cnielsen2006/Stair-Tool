@@ -50,7 +50,7 @@ A desktop stair calculator built with Python and tkinter that computes optimal s
 - **Stair angle arc indicator** — color-coded pie slice (green=ideal 30°–35°, yellow=warn, red=bad) with degree label and rating text, positioned in the whitespace triangle
 - **Board join markers** — when lumber is shorter than the stringer, red dashed perpendicular lines at each join with per-segment dimension callouts
 - **Intermediate support markers** — orange circles along the stringer when span exceeds 8 ft
-- **Step detail inset** — zoomed single-step view in a circle inscribed in the lower-right whitespace triangle, showing riser/tread dimensions and 2R+T value
+- **Step detail inset** — zoomed single-step view in a circle scaled to the lower-right whitespace triangle (scales with window resize), showing riser/tread dimensions and 2R+T value with proportionally scaled text and arrows
 - **Materials list** (upper-left) showing:
   - Stringer count, lumber size, and length (with auto-selection note)
   - Tread board count, size, and cut length (with boards-per-tread breakdown)
