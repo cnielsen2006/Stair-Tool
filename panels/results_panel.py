@@ -282,8 +282,8 @@ class ResultsPanel(ttk.Frame):
         self._stat_vars["stringer"].set(f"{sl_in:.2f}\"")
         self._stat_vars["stringer_ft"].set(f"{sl_ft:.2f} ft")
         n_risers = cfg.n_risers
-        n_treads = n_risers - 1
-        support_steps = list(range(self._support_every_n, n_treads, self._support_every_n))
+        n_step_treads = n_risers - 2  # exclude landing
+        support_steps = list(range(self._support_every_n, n_step_treads + 1, self._support_every_n))
         n_supports = len(support_steps)
         self._stat_vars["supports"].set(f"{n_supports} (every {self._support_every_n} steps)")
         self._stat_vars["bolts"].set(f"{n_supports}")
@@ -327,8 +327,9 @@ class ResultsPanel(ttk.Frame):
         total_run  = self._model.total_run
 
         margin = CANVAS_MARGIN
+        bottom_margin = margin + 30  # extra room for Total Run dimension
         usable_w = cw - 2 * margin
-        usable_h = ch - 2 * margin
+        usable_h = ch - margin - bottom_margin
 
         if usable_w <= 0 or usable_h <= 0:
             return
@@ -337,7 +338,7 @@ class ResultsPanel(ttk.Frame):
 
         # Origin: bottom-left of staircase in canvas coords
         ox = margin
-        oy = ch - margin
+        oy = ch - bottom_margin
 
         def px(phys_x, phys_y):
             """Physical inches → canvas pixels."""
@@ -705,8 +706,8 @@ class ResultsPanel(ttk.Frame):
         # Support posts: placed at every Nth step position along the stair.
         POST_W_IN = 3.5                     # actual 4×4 post width (inches)
         half_post = POST_W_IN / 2.0
-        n_treads = n - 1
-        support_step_indices = list(range(self._support_every_n, n_treads, self._support_every_n))
+        n_step_treads = n - 2  # exclude landing
+        support_step_indices = list(range(self._support_every_n, n_step_treads + 1, self._support_every_n))
         for si, step_i in enumerate(support_step_indices):
             sup_phys_x = step_i * tread + tread / 2
             sup_top_face_y = sup_phys_x * (stringer_top_y / total_run)
@@ -799,8 +800,8 @@ class ResultsPanel(ttk.Frame):
             # stringer.  Each bolt sits at the step's riser-base on the
             # top face, expressed as a slope distance from P0.
             step_slope = _math.hypot(tread, riser)
-            n_treads_bolt = n - 1
-            bolt_step_indices = list(range(self._support_every_n, n_treads_bolt, self._support_every_n))
+            n_step_treads_bolt = n - 2  # exclude landing
+            bolt_step_indices = list(range(self._support_every_n, n_step_treads_bolt + 1, self._support_every_n))
             all_bolt_slope_positions = []
             all_bolt_segment_info = []
             for step_i in bolt_step_indices:
@@ -1361,7 +1362,7 @@ class ResultsPanel(ttk.Frame):
         import math as _math
 
         n_risers = cfg.n_risers
-        n_treads = n_risers - 1  # tread count = step count (risers - 1)
+        n_treads = n_risers - 2  # step treads only (exclude landing)
         stringer_count = self._stringer_count
         stair_width = self._stair_width
         board_w = self._tread_board_width

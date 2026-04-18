@@ -9,6 +9,7 @@ from constants import SETTINGS_FILE
 from models import StairModel
 from panels.input_panel import InputPanel
 from panels.results_panel import ResultsPanel
+from pdf_export import export_diagram_pdf, export_report_pdf
 
 ICON_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stairs.ico")
 
@@ -63,6 +64,19 @@ class App:
         self.root.columnconfigure(1, weight=1)
         self.root.rowconfigure(0, weight=1)
 
+        menubar = tk.Menu(self.root)
+        file_menu = tk.Menu(menubar, tearoff=0)
+        file_menu.add_command(label="Export Diagram PDF…",
+                              accelerator="Ctrl+P",
+                              command=self._export_diagram)
+        file_menu.add_command(label="Export Full Report PDF…",
+                              accelerator="Ctrl+Shift+P",
+                              command=self._export_report)
+        file_menu.add_separator()
+        file_menu.add_command(label="Exit", command=self._on_close)
+        menubar.add_cascade(label="File", menu=file_menu)
+        self.root.config(menu=menubar)
+
         self.input_panel = InputPanel(
             self.root, on_change=self._on_inputs_changed,
             on_constraint_change=self._on_constraints_changed, initial=saved)
@@ -71,8 +85,19 @@ class App:
         self.results_panel = ResultsPanel(self.root)
         self.results_panel.grid(row=0, column=1, sticky="nsew", padx=(4, 8), pady=8)
 
-        # Keyboard shortcut: Ctrl+R → reset defaults
+        # Keyboard shortcuts
         self.root.bind("<Control-r>", lambda _: self.input_panel._reset_defaults())
+        self.root.bind("<Control-p>", lambda _: self._export_diagram())
+        self.root.bind("<Control-P>", lambda _: self._export_report())
+
+    def _export_diagram(self):
+        stats = {k: v.get() for k, v in self.results_panel._stat_vars.items()}
+        export_diagram_pdf(self.results_panel._canvas, stats)
+
+    def _export_report(self):
+        stats = {k: v.get() for k, v in self.results_panel._stat_vars.items()}
+        inputs = self.input_panel.get_inputs()
+        export_report_pdf(self.root, self.results_panel._canvas, inputs, stats)
 
     def _on_inputs_changed(self):
         # Do not reset _selected_risers — preserve the user's explicit step count
