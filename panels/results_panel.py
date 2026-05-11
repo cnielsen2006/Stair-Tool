@@ -244,8 +244,9 @@ class ResultsPanel(ttk.Frame):
                 self._model.min_tread <= tread <= self._model.max_tread
             )
             rot = 2 * riser + tread
-            stringer_top_y = (n - 1) * riser
-            stringer_len = math.sqrt(stringer_top_y**2 + self._model.total_run**2)
+            stringer_top_x = self._model.total_run + tread
+            stringer_top_y = self._model.total_rise
+            stringer_len = math.sqrt(stringer_top_y**2 + stringer_top_x**2)
             score = self._model._score(riser, tread)
             return StepConfig(n, riser, tread, score, valid, rot, stringer_len)
         return None
@@ -351,14 +352,16 @@ class ResultsPanel(ttk.Frame):
                       fill=GROUND_COLOR, width=2, dash=(4, 3))
 
         # Draw filled step rectangles
-        # N risers, N-1 treads → treads indexed 0..N-2
+        # Stringer extends one step past the landing, so draw N step rects
+        # (indices 0..N-1).  The last one's right edge tucks behind the
+        # landing rim.
         fill_color = STEP_FILL if cfg.is_valid else "#FFE0E0"
         import math as _m_step
         _step_angle = _m_step.atan2(riser, tread)
         _step_cos_a = _m_step.cos(_step_angle)
         _step_notch_depth = riser * _step_cos_a
         _step_throat = 11.25 - _step_notch_depth
-        for i in range(n - 1):
+        for i in range(n):
             x0, y0 = px(i * tread, i * riser)
             x1, y1 = px((i + 1) * tread, (i + 1) * riser)
             step_tag = f"step_{i}"
@@ -378,16 +381,14 @@ class ResultsPanel(ttk.Frame):
                           scx + sr * 1.6, scy + sr * 1.6,
                           fill="#4477AA", width=1.5, tags=step_tag)
 
-        # Stair profile polyline
+        # Stair profile polyline — N treads + N risers, ending at the
+        # stringer's top-end corner (total_run + tread, total_rise).
         points = list(px(0, 0))
-        for i in range(n - 1):
+        for i in range(n):
             # horizontal tread (going right)
             points += list(px((i + 1) * tread, i * riser))
             # vertical riser (going up)
             points += list(px((i + 1) * tread, (i + 1) * riser))
-        # top landing edge (top-right)
-        tx, ty = px(total_run, total_rise)
-        points += [tx, ty]
         c.create_line(points, fill=STEP_OUTLINE, width=2, joinstyle="miter")
 
         # (First-step riser/tread dimensions removed — shown in step detail circle)
@@ -454,10 +455,13 @@ class ResultsPanel(ttk.Frame):
         angle = _math.atan2(riser, tread)
         cos_a, sin_a = _math.cos(angle), _math.sin(angle)
 
-        # The stringer top face at x=total_run reaches y=(N-1)*riser,
-        # NOT total_rise (which is N*riser).  The last riser from there
-        # up to the landing is part of the stair, not the stringer slope.
-        stringer_top_y = (n - 1) * riser
+        # Stringer extends one full step past the landing's vertical face
+        # so the final riser is backed by stringer material.  Top face passes
+        # through every step corner along the slope and continues to
+        # (total_run + tread, total_rise); the plumb cut sits there, tucking
+        # under the landing deck.
+        stringer_top_x = total_run + tread
+        stringer_top_y = total_rise
 
         # Canvas-space helpers: offsets from a reference point.
         def along(dist_in):
@@ -519,8 +523,8 @@ class ResultsPanel(ttk.Frame):
         # --- Build the stringer outline polygon ---
         poly_phys = [
             P0_phys,                                            # P0 top-face bottom-end
-            (total_run,  stringer_top_y),                       # P1 top-face top-end
-            (total_run,  stringer_top_y - BW_div_cos),          # P2 bottom-face top-end (plumb)
+            (stringer_top_x, stringer_top_y),                   # P1 top-face top-end
+            (stringer_top_x, stringer_top_y - BW_div_cos),      # P2 bottom-face top-end (plumb)
             P3_phys,                                            # P3 bottom-face bottom-end
         ]
         if P4_phys is not None:
@@ -545,8 +549,8 @@ class ResultsPanel(ttk.Frame):
         #
         # Canvas coords of polygon corners
         P0cx, P0cy = px(P0_phys[0], P0_phys[1])
-        P1cx, P1cy = px(total_run,  stringer_top_y)
-        P2cx, P2cy = px(total_run,  stringer_top_y - BW_div_cos)
+        P1cx, P1cy = px(stringer_top_x, stringer_top_y)
+        P2cx, P2cy = px(stringer_top_x, stringer_top_y - BW_div_cos)
         P3cx, P3cy = px(P3_phys[0], P3_phys[1])
         if P4_phys is not None:
             P4cx, P4cy = px(P4_phys[0], P4_phys[1])
@@ -554,7 +558,7 @@ class ResultsPanel(ttk.Frame):
         str_col = "#7A5533"
         sdim_gap = 24   # pixels gap between face and dimension line
         # --- Side 1: top face P0→P1 ---
-        top_face_dx = total_run - P0_phys[0]
+        top_face_dx = stringer_top_x - P0_phys[0]
         top_face_dy = stringer_top_y - P0_phys[1]
         top_face_len = _math.sqrt(top_face_dx**2 + top_face_dy**2)
         # Board length: the rectangular board must contain the full stringer
@@ -611,9 +615,67 @@ class ResultsPanel(ttk.Frame):
                       text=f"{BW_div_cos:.2f}\"", fill=str_col,
                       font=("Segoe UI", 9), anchor="w", tags="dim")
 
+        # --- Side 2 long-side: along bottom face, span = BW·tanθ ---
+        # Anchored at P2 (bottom face, top end) running backward along the bottom
+        # face into the removed wedge — mirrors the seat-end long-side placement.
+        # NOTE: _bperp_x/_bperp_y are computed below in Side 3, so compute locally.
+        top_plumb_long = BOARD_W_IN * sin_a / cos_a
+        tpl_long_gap = 36
+        _tpl_face_dx = P2cx - P3cx
+        _tpl_face_dy = P2cy - P3cy
+        _tpl_bperp_x = -_tpl_face_dy
+        _tpl_bperp_y =  _tpl_face_dx
+        tpl_b_along_x, tpl_b_along_y = along(top_plumb_long)
+        tpl_B_cx = P2cx + tpl_b_along_x
+        tpl_B_cy = P2cy + tpl_b_along_y
+        tpl_a_y1 = P2cy + tpl_long_gap
+        tpl_b_y1 = tpl_B_cy + tpl_long_gap
+        tpl_a_x1 = P2cx     + (tpl_long_gap / _tpl_bperp_y) * _tpl_bperp_x
+        tpl_b_x1 = tpl_B_cx + (tpl_long_gap / _tpl_bperp_y) * _tpl_bperp_x
+        c.create_line(P2cx,    P2cy,    tpl_a_x1, tpl_a_y1, fill=str_col, width=1, tags="dim")
+        c.create_line(tpl_B_cx, tpl_B_cy, tpl_b_x1, tpl_b_y1, fill=str_col, width=1, tags="dim")
+        c.create_line(tpl_a_x1, tpl_a_y1, tpl_b_x1, tpl_b_y1,
+                      arrow=tk.BOTH, fill=str_col, width=1, tags="dim")
+        tpl_mx = (tpl_a_x1 + tpl_b_x1) / 2
+        tpl_my = (tpl_a_y1 + tpl_b_y1) / 2
+        c.create_text(tpl_mx, tpl_my + 6,
+                      text=f"{top_plumb_long:.2f}\"",
+                      fill=str_col, font=("Segoe UI", 8),
+                      angle=_math.degrees(angle), anchor="n", tags="dim")
+
+        # --- Side 2 perp leg: BOARD_W_IN, drawn beyond Q into the removed wedge ---
+        # Helper: draw a perpendicular-to-long-axis dim line of given physical length,
+        # positioned at long-axis offset from a face anchor point.
+        # Canvas perp-into-board unit vector: CCW 90° of along canvas direction.
+        # along canvas = (cos_a, -sin_a) → CCW 90° = (sin_a, cos_a). Scaled: ·scale per inch.
+        def _perp_into(d_in):
+            return d_in * sin_a * scale, d_in * cos_a * scale
+        tpp_perp_value = BOARD_W_IN
+        tpp_gap_in = 28 / scale if scale else 28
+        # End A on bottom face (Q + along forward): the long-side endpoint on bottom face.
+        tpp_a_along = along(tpp_gap_in)
+        tpp_a_x0 = tpl_B_cx + tpp_a_along[0]
+        tpp_a_y0 = tpl_B_cy + tpp_a_along[1]
+        # End B = End A shifted by -perp_into (toward top face) by perp_value
+        tpp_into = _perp_into(-tpp_perp_value)
+        tpp_b_x0 = tpp_a_x0 + tpp_into[0]
+        tpp_b_y0 = tpp_a_y0 + tpp_into[1]
+        # Extension lines: from Q (bottom face) along axis to End A; from P1 (top face) along axis to End B
+        c.create_line(tpl_B_cx, tpl_B_cy, tpp_a_x0, tpp_a_y0, fill=str_col, width=1, tags="dim")
+        c.create_line(P1cx,    P1cy,    tpp_b_x0, tpp_b_y0, fill=str_col, width=1, tags="dim")
+        c.create_line(tpp_a_x0, tpp_a_y0, tpp_b_x0, tpp_b_y0,
+                      arrow=tk.BOTH, fill=str_col, width=1, tags="dim")
+        tpp_mx = (tpp_a_x0 + tpp_b_x0) / 2
+        tpp_my = (tpp_a_y0 + tpp_b_y0) / 2
+        tpp_lbl_off = along(8 / scale if scale else 8)
+        c.create_text(tpp_mx + tpp_lbl_off[0], tpp_my + tpp_lbl_off[1],
+                      text=f"{tpp_perp_value:.2f}\"",
+                      fill=str_col, font=("Segoe UI", 8),
+                      angle=_math.degrees(angle) - 90, anchor="s", tags="dim")
+
         # --- Side 3: bottom face P2→P3 ---
         import math as _m3
-        bot_face_dx = total_run - P3_phys[0]
+        bot_face_dx = stringer_top_x - P3_phys[0]
         bot_face_dy = (stringer_top_y - BW_div_cos) - P3_phys[1]
         bot_face_in = _m3.sqrt(bot_face_dx**2 + bot_face_dy**2)
         bot_face_ft = bot_face_in / 12.0
@@ -653,6 +715,101 @@ class ResultsPanel(ttk.Frame):
             c.create_text((ffd_x0 + ffd_x1) / 2, ffd_y0 + 3,
                           text=f"Seat: {seat_len:.2f}\"",
                           fill=str_col, font=("Segoe UI", 9), anchor="n", tags="dim")
+
+            # --- Seat long-side: along bottom face from P3 forward by seat_len·cosθ ---
+            seat_long = seat_len * cos_a
+            spl_long_gap = 36
+            # Long side measures into the REMOVED wedge: along bottom face direction
+            # backward from P3 (P4 projects to a point behind P3 along bottom face axis).
+            spl_b_along_x, spl_b_along_y = along(-seat_long)
+            spl_B_cx = P3cx + spl_b_along_x
+            spl_B_cy = P3cy + spl_b_along_y
+            spl_a_y1 = P3cy + spl_long_gap
+            spl_b_y1 = spl_B_cy + spl_long_gap
+            spl_a_x1 = P3cx    + (spl_long_gap / _bperp_y) * _bperp_x
+            spl_b_x1 = spl_B_cx + (spl_long_gap / _bperp_y) * _bperp_x
+            c.create_line(P3cx,    P3cy,    spl_a_x1, spl_a_y1, fill=str_col, width=1, tags="dim")
+            c.create_line(spl_B_cx, spl_B_cy, spl_b_x1, spl_b_y1, fill=str_col, width=1, tags="dim")
+            c.create_line(spl_a_x1, spl_a_y1, spl_b_x1, spl_b_y1,
+                          arrow=tk.BOTH, fill=str_col, width=1, tags="dim")
+            spl_mx = (spl_a_x1 + spl_b_x1) / 2
+            spl_my = (spl_a_y1 + spl_b_y1) / 2
+            c.create_text(spl_mx, spl_my + 6,
+                          text=f"{seat_long:.2f}\"",
+                          fill=str_col, font=("Segoe UI", 8),
+                          angle=_math.degrees(angle), anchor="n", tags="dim")
+
+            # --- Seat perp leg: BW − tread·sinθ, drawn behind Q into the removed wedge ---
+            spp_perp_value = BOARD_W_IN - tread * sin_a
+            spp_gap_in = 56 / scale if scale else 56
+            # End A on bottom face: Q shifted backward along axis
+            spp_a_along = along(-spp_gap_in)
+            spp_a_x0 = spl_B_cx + spp_a_along[0]
+            spp_a_y0 = spl_B_cy + spp_a_along[1]
+            # End B: shifted into board (toward top face) by perp_value
+            spp_into = (-spp_perp_value * sin_a * scale, -spp_perp_value * cos_a * scale)
+            spp_b_x0 = spp_a_x0 + spp_into[0]
+            spp_b_y0 = spp_a_y0 + spp_into[1]
+            c.create_line(spl_B_cx, spl_B_cy, spp_a_x0, spp_a_y0, fill=str_col, width=1, tags="dim")
+            # The "other end" reference is at long-axis = P4_along, perp = +(BW − tread·sinθ)
+            # from the bottom face. We extend backward from spl_B (which is at P4's long-axis)
+            # along the axis to reach spp_b_x0 — but conceptually the extension should also
+            # reach back to the corresponding cut endpoint. Here we just show the dim line
+            # without a second extension line since P4 is not on either face.
+            c.create_line(spp_a_x0, spp_a_y0, spp_b_x0, spp_b_y0,
+                          arrow=tk.BOTH, fill=str_col, width=1, tags="dim")
+            spp_mx = (spp_a_x0 + spp_b_x0) / 2
+            spp_my = (spp_a_y0 + spp_b_y0) / 2
+            spp_lbl_off = along(-8 / scale if scale else -8)
+            c.create_text(spp_mx + spp_lbl_off[0], spp_my + spp_lbl_off[1],
+                          text=f"{spp_perp_value:.2f}\"",
+                          fill=str_col, font=("Segoe UI", 8),
+                          angle=_math.degrees(angle) - 90, anchor="n", tags="dim")
+
+            # --- Riser-cut long-side: along top face from P0 forward by riser·sinθ ---
+            riser_long = riser * sin_a
+            rpl_long_gap = 36
+            # Long side measures into the REMOVED wedge: along top face direction
+            # backward from P0 (P4 projects to a point behind P0 along top face axis).
+            rpl_b_along_x, rpl_b_along_y = along(-riser_long)
+            rpl_B_cx = P0cx + rpl_b_along_x
+            rpl_B_cy = P0cy + rpl_b_along_y
+            rpl_a_y1 = P0cy - rpl_long_gap
+            rpl_b_y1 = rpl_B_cy - rpl_long_gap
+            rpl_a_x1 = P0cx    + (-rpl_long_gap / _perp_y) * _perp_x
+            rpl_b_x1 = rpl_B_cx + (-rpl_long_gap / _perp_y) * _perp_x
+            c.create_line(P0cx,    P0cy,    rpl_a_x1, rpl_a_y1, fill=str_col, width=1, tags="dim")
+            c.create_line(rpl_B_cx, rpl_B_cy, rpl_b_x1, rpl_b_y1, fill=str_col, width=1, tags="dim")
+            c.create_line(rpl_a_x1, rpl_a_y1, rpl_b_x1, rpl_b_y1,
+                          arrow=tk.BOTH, fill=str_col, width=1, tags="dim")
+            rpl_mx = (rpl_a_x1 + rpl_b_x1) / 2
+            rpl_my = (rpl_a_y1 + rpl_b_y1) / 2
+            c.create_text(rpl_mx, rpl_my - 6,
+                          text=f"{riser_long:.2f}\"",
+                          fill=str_col, font=("Segoe UI", 8),
+                          angle=_math.degrees(angle), anchor="s", tags="dim")
+
+            # --- Riser perp leg: riser·cosθ, drawn behind Q on top-face side ---
+            rpp_perp_value = riser * cos_a
+            rpp_gap_in = 56 / scale if scale else 56
+            # End A on top face: Q (rpl_B) shifted backward along axis
+            rpp_a_along = along(-rpp_gap_in)
+            rpp_a_x0 = rpl_B_cx + rpp_a_along[0]
+            rpp_a_y0 = rpl_B_cy + rpp_a_along[1]
+            # End B: shifted INTO board (toward bottom face) by perp_value
+            rpp_into = (rpp_perp_value * sin_a * scale, rpp_perp_value * cos_a * scale)
+            rpp_b_x0 = rpp_a_x0 + rpp_into[0]
+            rpp_b_y0 = rpp_a_y0 + rpp_into[1]
+            c.create_line(rpl_B_cx, rpl_B_cy, rpp_a_x0, rpp_a_y0, fill=str_col, width=1, tags="dim")
+            c.create_line(rpp_a_x0, rpp_a_y0, rpp_b_x0, rpp_b_y0,
+                          arrow=tk.BOTH, fill=str_col, width=1, tags="dim")
+            rpp_mx = (rpp_a_x0 + rpp_b_x0) / 2
+            rpp_my = (rpp_a_y0 + rpp_b_y0) / 2
+            rpp_lbl_off = along(-8 / scale if scale else -8)
+            c.create_text(rpp_mx + rpp_lbl_off[0], rpp_my + rpp_lbl_off[1],
+                          text=f"{rpp_perp_value:.2f}\"",
+                          fill=str_col, font=("Segoe UI", 8),
+                          angle=_math.degrees(angle) - 90, anchor="n", tags="dim")
         else:
             # Default: horizontal foot along ground from P3 to P0
             # Ground is horizontal → perpendicular is vertical
@@ -665,6 +822,57 @@ class ResultsPanel(ttk.Frame):
             c.create_text((ffd_x0 + ffd_x1) / 2, ffd_y0 + 3,
                           text=f"Foot: {BW_div_sin:.2f}\"",
                           fill=str_col, font=("Segoe UI", 9), anchor="n", tags="dim")
+            # --- Foot long-side: along bottom face from P3 forward by BW/tanθ ---
+            # Triangle: hypotenuse = horizontal foot, long side along bottom face.
+            # Mirror the Side-3 (bottom face) dimension pattern: axis-aligned y-offset
+            # below the face, with perpendicular extension lines.
+            foot_long = BW_div_sin * cos_a
+            fpl_long_gap = 36
+            # Long side measures into the REMOVED wedge: along bottom face direction
+            # backward from P3 (past the kept board's bottom-face endpoint).
+            fpl_b_along_x, fpl_b_along_y = along(-foot_long)
+            fpl_B_cx = P3cx + fpl_b_along_x
+            fpl_B_cy = P3cy + fpl_b_along_y
+            fpl_a_y1 = P3cy + fpl_long_gap
+            fpl_b_y1 = fpl_B_cy + fpl_long_gap
+            fpl_a_x1 = P3cx    + (fpl_long_gap / _bperp_y) * _bperp_x
+            fpl_b_x1 = fpl_B_cx + (fpl_long_gap / _bperp_y) * _bperp_x
+            c.create_line(P3cx,    P3cy,    fpl_a_x1, fpl_a_y1, fill=str_col, width=1, tags="dim")
+            c.create_line(fpl_B_cx, fpl_B_cy, fpl_b_x1, fpl_b_y1, fill=str_col, width=1, tags="dim")
+            c.create_line(fpl_a_x1, fpl_a_y1, fpl_b_x1, fpl_b_y1,
+                          arrow=tk.BOTH, fill=str_col, width=1, tags="dim")
+            fpl_mx = (fpl_a_x1 + fpl_b_x1) / 2
+            fpl_my = (fpl_a_y1 + fpl_b_y1) / 2
+            c.create_text(fpl_mx, fpl_my + 6,
+                          text=f"{foot_long:.2f}\"",
+                          fill=str_col, font=("Segoe UI", 8),
+                          angle=_math.degrees(angle), anchor="n", tags="dim")
+
+            # --- Foot perp leg: BOARD_W_IN, drawn behind Q into the removed wedge ---
+            fpp_perp_value = BOARD_W_IN
+            fpp_gap_in = 28 / scale if scale else 28
+            # End A on bottom face: Q (fpl_B) shifted backward along axis
+            fpp_a_along = along(-fpp_gap_in)
+            fpp_a_x0 = fpl_B_cx + fpp_a_along[0]
+            fpp_a_y0 = fpl_B_cy + fpp_a_along[1]
+            # End B = End A shifted toward top face by perp_value
+            fpp_into = (-fpp_perp_value * sin_a * scale, -fpp_perp_value * cos_a * scale)
+            fpp_b_x0 = fpp_a_x0 + fpp_into[0]
+            fpp_b_y0 = fpp_a_y0 + fpp_into[1]
+            # Extension from Q (bottom face) backward along axis to End A
+            c.create_line(fpl_B_cx, fpl_B_cy, fpp_a_x0, fpp_a_y0, fill=str_col, width=1, tags="dim")
+            # Extension from P0 (top face) backward along axis to End B
+            # P0_along = 0 = fpl_B's along (since fpl_B is at P3_along - foot_long = 0)
+            c.create_line(P0cx, P0cy, fpp_b_x0, fpp_b_y0, fill=str_col, width=1, tags="dim")
+            c.create_line(fpp_a_x0, fpp_a_y0, fpp_b_x0, fpp_b_y0,
+                          arrow=tk.BOTH, fill=str_col, width=1, tags="dim")
+            fpp_mx = (fpp_a_x0 + fpp_b_x0) / 2
+            fpp_my = (fpp_a_y0 + fpp_b_y0) / 2
+            fpp_lbl_off = along(-8 / scale if scale else -8)
+            c.create_text(fpp_mx + fpp_lbl_off[0], fpp_my + fpp_lbl_off[1],
+                          text=f"{fpp_perp_value:.2f}\"",
+                          fill=str_col, font=("Segoe UI", 8),
+                          angle=_math.degrees(angle) - 90, anchor="n", tags="dim")
 
 
         # --- Step notch cut lines ---
@@ -674,7 +882,7 @@ class ResultsPanel(ttk.Frame):
         # We draw the L-shaped notch outline on the board face.
         NOTCH_COLOR = "#CC4400"
 
-        for i in range(1, n):
+        for i in range(1, n + 1):
             corner_px = i * tread   # physical x of riser-tread corner
             corner_py = i * riser   # physical y
 
@@ -710,7 +918,7 @@ class ResultsPanel(ttk.Frame):
         support_step_indices = list(range(self._support_every_n, n_step_treads + 1, self._support_every_n))
         for si, step_i in enumerate(support_step_indices):
             sup_phys_x = step_i * tread + tread / 2
-            sup_top_face_y = sup_phys_x * (stringer_top_y / total_run)
+            sup_top_face_y = sup_phys_x * (riser / tread)
             sup_bot_face_y = sup_top_face_y - BW_div_cos
             sup_post_top_y = sup_bot_face_y + 0.75 * BW_div_cos
             post_left_cx, post_top_cy  = px(sup_phys_x - half_post, sup_post_top_y)
@@ -1245,8 +1453,9 @@ class ResultsPanel(ttk.Frame):
             # Bottom-face dim line endpoints (canvas coords)
             # P3 = (BW/sinθ, 0) in both modes (bottom face meets ground here)
             P3cx, P3cy = ox + BW_div_sin * scale, oy
-            stringer_top_y = (n - 1) * riser
-            P2cx, P2cy = ox + total_run * scale, oy - (stringer_top_y - BW_div_cos) * scale
+            stringer_top_x = total_run + tread
+            stringer_top_y = total_rise
+            P2cx, P2cy = ox + stringer_top_x * scale, oy - (stringer_top_y - BW_div_cos) * scale
             # Perpendicular extension meets axis-aligned y-offset (must match _redraw_canvas)
             _face_dx = P2cx - P3cx
             _face_dy = P2cy - P3cy

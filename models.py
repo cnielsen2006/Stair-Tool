@@ -83,10 +83,12 @@ class StairModel:
             rot = 2 * riser + tread
 
             # Stringer diagonal: hypotenuse of stringer slope triangle.
-            # Top face runs through step corners at slope riser/tread, reaching
-            # y = (n-1)*riser at x = total_run (one riser below the landing).
-            stringer_top_y = (n - 1) * riser
-            stringer_len = math.sqrt(stringer_top_y ** 2 + self.total_run ** 2)
+            # Top face runs through step corners along slope riser/tread and
+            # extends one full step past the landing face, reaching
+            # (total_run + tread, total_rise) so the final riser is backed.
+            stringer_top_x = self.total_run + tread
+            stringer_top_y = self.total_rise
+            stringer_len = math.sqrt(stringer_top_y ** 2 + stringer_top_x ** 2)
 
             configs.append(StepConfig(n, riser, tread, s, valid, rot,
                                       stringer_len))
