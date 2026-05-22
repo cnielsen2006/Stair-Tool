@@ -47,6 +47,7 @@ A desktop stair calculator built with Python and tkinter that computes optimal s
   - Riser notch markers (R1, R2, …) on the top face
   - Bottom bearing indicator
 - **4-side stringer dimensioning** — all four sides of the cut stringer shape are dimensioned with perpendicular extension lines
+- **End-cut triangle dimensions** — each end cut (top plumb, bottom foot or seat-plus-riser) is fully dimensioned with all three legs of its right triangle: hypotenuse (the cut itself), long side (along the board's long axis, drawn parallel to the relevant face into the removed wedge), and perpendicular leg (across the board, drawn perpendicular to the long axis past the long-side dim)
 - **Stair angle arc indicator** — color-coded pie slice (green=ideal 30°–35°, yellow=warn, red=bad) with degree label and rating text, positioned in the whitespace triangle
 - **Board join markers** — when lumber is shorter than the stringer, red dashed perpendicular lines at each join with per-segment dimension callouts
 - **Intermediate support markers** — orange circles along the stringer when span exceeds 8 ft
