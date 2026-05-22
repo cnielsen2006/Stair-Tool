@@ -335,7 +335,7 @@ class ResultsPanel(ttk.Frame):
         if usable_w <= 0 or usable_h <= 0:
             return
 
-        scale = min(usable_w / total_run, usable_h / total_rise)
+        scale = min(usable_w / (total_run + tread), usable_h / total_rise)
 
         # Origin: bottom-left of staircase in canvas coords
         ox = margin
@@ -345,9 +345,9 @@ class ResultsPanel(ttk.Frame):
             """Physical inches → canvas pixels."""
             return ox + phys_x * scale, oy - phys_y * scale
 
-        # Ground line
+        # Ground line — extends under the full stringer footprint
         gx1, gy1 = px(0, 0)
-        gx2, gy2 = px(total_run, 0)
+        gx2, gy2 = px(total_run + tread, 0)
         c.create_line(gx1 - 4, gy1, gx2 + 4, gy2,
                       fill=GROUND_COLOR, width=2, dash=(4, 3))
 
@@ -413,17 +413,23 @@ class ResultsPanel(ttk.Frame):
                       text=f"Total Rise\n{total_rise:.2f}\"",
                       fill=dim_color, font=("Segoe UI", 9), anchor="w", tags="dim")
 
-        # Bottom dimension: total run
+        # Bottom dimension: total run — spans the actual stringer footprint.
+        # In default mode the stringer starts at x=0; with bottom plumb cut the
+        # first riser face sits at x=tread, so the footprint starts there.
+        # Top end is always one tread past the landing face.
         dim_offset_y = 30
-        bx_left,  by_bot = px(0,         0)
-        bx_right, _      = px(total_run, 0)
+        footprint_x0 = tread if self._bottom_plumb_cut else 0.0
+        footprint_x1 = total_run + tread
+        footprint_len = footprint_x1 - footprint_x0
+        bx_left,  by_bot = px(footprint_x0, 0)
+        bx_right, _      = px(footprint_x1, 0)
         bdim_y = by_bot + dim_offset_y
         c.create_line(bx_left,  by_bot, bx_left,  bdim_y + tick, fill=dim_color, width=1, tags="dim")
         c.create_line(bx_right, by_bot, bx_right, bdim_y + tick, fill=dim_color, width=1, tags="dim")
         c.create_line(bx_left, bdim_y, bx_right, bdim_y,
                       arrow=tk.BOTH, fill=dim_color, width=1, tags="dim")
         c.create_text((bx_left + bx_right) / 2, bdim_y + tick + 2,
-                      text=f"Total Run: {total_run:.2f}\"",
+                      text=f"Total Run: {footprint_len:.2f}\"",
                       fill=dim_color, font=("Segoe UI", 9), anchor="n", tags="dim")
 
         # ── 2×12 Stringer ─────────────────────────────────────────────
@@ -1439,7 +1445,7 @@ class ResultsPanel(ttk.Frame):
             margin = CANVAS_MARGIN
             usable_w = cw - 2 * margin
             usable_h = ch - 2 * margin
-            scale = min(usable_w / total_run, usable_h / total_rise) if total_run and total_rise else 1
+            scale = min(usable_w / (total_run + tread), usable_h / total_rise) if total_run and total_rise else 1
             ox = margin
             oy = ch - margin
 
